@@ -74,6 +74,21 @@ the deployment shape — and gates on:
   another account; the desk queue's rows must carry the
   watch; computing either model must mutate nothing.
   Gate: every check true.
+- **portfolio scenario** — the morning portfolio brief, in two
+  parts. A staged seven-account world plants one account per
+  signal (a stale decision, an open ask, a lapsed + an expiring
+  fact, two pending candidates, an awaiting brief, and two
+  clean decided accounts whose names and ids disagree in
+  order): the ranked order and every score must equal the
+  arithmetic done by hand from the planted signals and the
+  authored weights, the zero-signal accounts must close the
+  list in name order, and building the brief must leave the
+  desk queue, the watch, and every store byte-identical.
+  Then the seeded book itself, ingested with the desk's
+  review pass performed and nothing decided: ACC-006 must
+  head the ranking on its two planted lapsed facts, and the
+  other thirty-nine accounts must stand tied at
+  never-decided, in name order. Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -97,6 +112,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from zep_context_agent import guardrails  # noqa: E402
+from zep_context_agent import portfolio as portfolio_mod  # noqa: E402
 from zep_context_agent.citations import InMemoryCitationIndex  # noqa: E402
 from zep_context_agent.datasets import DATASET_PRESENT, load_accounts  # noqa: E402
 from zep_context_agent.offline_graph import OfflineContextGraph  # noqa: E402
@@ -240,6 +256,7 @@ def run_offline() -> dict:
     follow_scenario = run_followthrough_scenario(accounts)
     timeline_scenario = run_timeline_scenario(accounts)
     review_scenario = run_review_scenario(accounts)
+    portfolio_scenario = run_portfolio_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -253,6 +270,7 @@ def run_offline() -> dict:
         "followthrough_scenario": follow_scenario["passed"],
         "timeline_scenario": timeline_scenario["passed"],
         "review_scenario": review_scenario["passed"],
+        "portfolio_scenario": portfolio_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -271,6 +289,7 @@ def run_offline() -> dict:
         "followthrough_scenario": follow_scenario,
         "timeline_scenario": timeline_scenario,
         "review_scenario": review_scenario,
+        "portfolio_scenario": portfolio_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -1263,6 +1282,337 @@ def run_timeline_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_portfolio_scenario(accounts: dict) -> dict:
+    """The morning portfolio brief: the whole book, ranked.
+
+    Part A stages seven accounts, one per signal, plus two
+    clean decided accounts whose names and ids disagree in
+    order. The expected ranking is arithmetic done by hand
+    from the planted signals and the authored weights:
+
+        PA  stale decision 1                       -> 100
+        PC  lapsed 1 + expiring 1 + never decided  ->  65
+        PB  open ask 1                             ->  30
+        PD  candidates 2 + never decided           ->  25
+        PF  never decided (brief awaits the gate)  ->   5
+        PG  clean decided                          ->   0
+        PE  clean decided                          ->   0
+
+    Zero rows close the list by NAME — Delta (ACC-PG) before
+    Echo (ACC-PE), where id order would reverse them.
+    Building the brief must leave the desk queue, the expiry
+    watch, and every store byte-identical, and two builds
+    must be byte-identical to each other.
+
+    Part B is the seeded book itself: all forty accounts
+    ingested, the desk's review pass performed, nothing
+    decided, as of the dataset's present. ACC-006's planted
+    file carries the book's only watch rows — two lapsed
+    facts — so it must head the ranking at 2 x 40 + 5 = 85,
+    and the other thirty-nine must stand tied at
+    never-decided (5), in name order, Zephyr Systems last.
+    """
+    checks: dict[str, bool] = {}
+    as_of = date(2026, 6, 1)
+
+    def doc(doc_id, account_id, kind, title, received, assertions=(), text=""):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id=account_id,
+            kind=kind,
+            title=title,
+            received_at=received,
+            text=text,
+            assertions=list(assertions),
+        )
+
+    def fact(predicate, value, valid_from, valid_to=None, entity_ref="", unit=""):
+        return FactAssertion(
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            entity_ref=entity_ref,
+        )
+
+    def submission(doc_id, account_id, name, omit=()):
+        values = {
+            "legal_name": name,
+            "risk_class": "light manufacturing",
+            "annual_revenue_usd": 5000000,
+            "primary_location": "1 Portfolio Way, Dayton, OH",
+            "policy_limit_usd": 1000000,
+            "claims_count_3yr": 1,
+        }
+        return doc(
+            doc_id, account_id, "submission",
+            f"Submission 2026 — {name}", date(2026, 5, 20),
+            assertions=[
+                fact(p, v, date(2026, 1, 1),
+                     unit="USD" if p.endswith("_usd") else "")
+                for p, v in values.items()
+                if p not in omit
+            ],
+        )
+
+    staged = {
+        "ACC-PA": Account(
+            account_id="ACC-PA",
+            display_name="Portfolio Zulu Co",
+            documents=[submission("DOC-PA-SUB", "ACC-PA", "Portfolio Zulu Co")],
+        ),
+        "ACC-PB": Account(
+            account_id="ACC-PB",
+            display_name="Portfolio Mike Co",
+            documents=[
+                submission("DOC-PB-SUB", "ACC-PB", "Portfolio Mike Co",
+                           omit=("claims_count_3yr",)),
+            ],
+        ),
+        "ACC-PC": Account(
+            account_id="ACC-PC",
+            display_name="Portfolio Alpha Co",
+            documents=[
+                submission("DOC-PC-SUB", "ACC-PC", "Portfolio Alpha Co",
+                           omit=("policy_limit_usd",)),
+                doc(
+                    "DOC-PC-POL", "ACC-PC", "endorsement",
+                    "Policy schedules — Portfolio Alpha Co", date(2026, 1, 12),
+                    assertions=[
+                        fact("policy_limit_usd", 900000, date(2025, 6, 1),
+                             date(2026, 5, 1), entity_ref="POL-PC-1",
+                             unit="USD"),
+                        fact("cyber_limit_usd", 500000, date(2026, 1, 1),
+                             date(2026, 7, 1), entity_ref="POL-PC-2",
+                             unit="USD"),
+                    ],
+                ),
+            ],
+        ),
+        "ACC-PD": Account(
+            account_id="ACC-PD",
+            display_name="Portfolio Bravo Co",
+            documents=[
+                submission("DOC-PD-SUB", "ACC-PD", "Portfolio Bravo Co"),
+                doc(
+                    "DOC-PD-COR", "ACC-PD", "correspondence",
+                    "Broker letter — deductible and sprinklers",
+                    date(2026, 5, 25),
+                    text="Confirming the deductible and the sprinkler "
+                    "position for the file.",
+                    assertions=[
+                        fact("deductible_usd", 25000, date(2026, 1, 1),
+                             unit="USD"),
+                        fact("sprinkler_coverage_pct", 95, date(2026, 1, 1),
+                             unit="%"),
+                    ],
+                ),
+            ],
+        ),
+        "ACC-PE": Account(
+            account_id="ACC-PE",
+            display_name="Portfolio Echo Co",
+            documents=[submission("DOC-PE-SUB", "ACC-PE", "Portfolio Echo Co")],
+        ),
+        "ACC-PF": Account(
+            account_id="ACC-PF",
+            display_name="Portfolio Charlie Co",
+            documents=[
+                submission("DOC-PF-SUB", "ACC-PF", "Portfolio Charlie Co")
+            ],
+        ),
+        "ACC-PG": Account(
+            account_id="ACC-PG",
+            display_name="Portfolio Delta Co",
+            documents=[
+                submission("DOC-PG-SUB", "ACC-PG", "Portfolio Delta Co")
+            ],
+        ),
+    }
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=staged,
+    )
+    brief_pa = service.assemble("ACC-PA", as_of=date(2026, 5, 1))
+    service.decide(
+        brief_pa.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: the file as it stood.",
+    )
+    staged["ACC-PA"] = Account(
+        account_id="ACC-PA",
+        display_name="Portfolio Zulu Co",
+        documents=[
+            submission("DOC-PA-SUB", "ACC-PA", "Portfolio Zulu Co"),
+            doc(
+                "DOC-PA-END", "ACC-PA", "endorsement",
+                "Endorsement — limit reduced, Portfolio Zulu Co",
+                date(2026, 5, 16),
+                assertions=[
+                    fact("policy_limit_usd", 750000, date(2026, 5, 15),
+                         unit="USD"),
+                ],
+            ),
+        ],
+    )
+    service.ingest("ACC-PA")  # the endorsement stales PA's decision
+    brief_pb = service.assemble("ACC-PB", as_of=as_of)
+    service.decide(
+        brief_pb.brief_id,
+        action="request_info",
+        actor="Eval Gate",
+        reason="Scenario: claims history outstanding.",
+    )
+    service.ingest("ACC-PC")
+    service.ingest("ACC-PD")
+    for account_id in ("ACC-PE", "ACC-PG"):
+        brief = service.assemble(account_id, as_of=as_of)
+        service.decide(
+            brief.brief_id,
+            action="proceed",
+            actor="Eval Gate",
+            reason="Scenario: complete file; nothing outstanding.",
+        )
+    service.assemble("ACC-PF", as_of=as_of)  # awaiting, never decided
+
+    def snapshot() -> tuple:
+        queue = build_desk_queue(
+            staged,
+            service.store,
+            service.staleness_store,
+            follow_store=service.follow_store,
+            today=as_of,
+            port=service.port,
+        )
+        return (
+            [e.model_dump_json() for e in queue],
+            [
+                r.model_dump_json()
+                for r in service.expiry_watch(as_of=as_of, horizon_days=45)
+            ],
+            [b.model_dump_json() for b in service.list_briefs()],
+            [r.model_dump_json() for r in service.list_staleness()],
+            [r.model_dump_json() for r in service.list_follow_through()],
+        )
+
+    before = snapshot()
+    brief = service.portfolio_brief(as_of=as_of, horizon_days=45)
+    checks["building_the_brief_mutates_nothing"] = snapshot() == before
+    again = service.portfolio_brief(as_of=as_of, horizon_days=45)
+    checks["brief_is_byte_deterministic"] = (
+        brief.model_dump_json() == again.model_dump_json()
+    )
+    checks["weights_are_the_authored_ones"] = brief.weights == {
+        "stale_decisions": 100,
+        "lapsed_facts": 40,
+        "open_asks": 30,
+        "expiring_facts": 20,
+        "pending_candidates": 10,
+        "no_decided_brief": 5,
+    }
+    expected_signals = {
+        "ACC-PA": {"stale_decisions": 1},
+        "ACC-PC": {"lapsed_facts": 1, "expiring_facts": 1, "no_decided_brief": 1},
+        "ACC-PB": {"open_asks": 1},
+        "ACC-PD": {"pending_candidates": 2, "no_decided_brief": 1},
+        "ACC-PF": {"no_decided_brief": 1},
+        "ACC-PG": {},
+        "ACC-PE": {},
+    }
+    checks["signals_exact"] = all(
+        {
+            name: getattr(row.signals, name)
+            for name in brief.weights
+            if getattr(row.signals, name)
+        }
+        == expected_signals[row.account_id]
+        for row in brief.rows
+    )
+    checks["order_exact"] = [r.account_id for r in brief.rows] == [
+        "ACC-PA", "ACC-PC", "ACC-PB", "ACC-PD", "ACC-PF", "ACC-PG", "ACC-PE",
+    ]
+    checks["scores_exact"] = {r.account_id: r.score for r in brief.rows} == {
+        "ACC-PA": 100, "ACC-PC": 65, "ACC-PB": 30, "ACC-PD": 25,
+        "ACC-PF": 5, "ACC-PG": 0, "ACC-PE": 0,
+    }
+    checks["score_is_the_weighted_sum"] = all(
+        row.score
+        == sum(
+            brief.weights[name] * getattr(row.signals, name)
+            for name in brief.weights
+        )
+        for row in brief.rows
+    )
+    checks["zero_signal_rows_close_by_name"] = [
+        r.account_id for r in brief.rows[-2:]
+    ] == ["ACC-PG", "ACC-PE"]
+
+    # -- Part B: the seeded book -------------------------------------------
+    book = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=accounts,
+    )
+    for account_id in sorted(accounts):
+        book.ingest(account_id)
+    for account_id in sorted(accounts):
+        for candidate in book.list_candidates(account_id, state="pending"):
+            book.review_candidate(
+                candidate.candidate_id,
+                account_id=account_id,
+                action="confirm",
+                actor="Eval Desk",
+            )
+    book_brief = book.portfolio_brief(as_of=DATASET_PRESENT, horizon_days=45)
+    rows = book_brief.rows
+    checks["book_lists_every_account"] = (
+        len(rows) == 40
+        and {r.account_id for r in rows} == set(accounts)
+    )
+    top = rows[0] if rows else None
+    checks["acc006_heads_the_book_on_its_planted_lapses"] = (
+        top is not None
+        and top.account_id == "ACC-006"
+        and top.signals.lapsed_facts == 2
+        and top.signals.no_decided_brief == 1
+        and top.signals.stale_decisions == 0
+        and top.signals.open_asks == 0
+        and top.signals.expiring_facts == 0
+        and top.signals.pending_candidates == 0
+        and top.score == 85
+    )
+    rest = rows[1:]
+    checks["the_rest_of_the_book_is_unexamined_only"] = all(
+        r.score == 5
+        and r.signals.no_decided_brief == 1
+        and r.signals.lapsed_facts == 0
+        and r.signals.expiring_facts == 0
+        and r.signals.stale_decisions == 0
+        and r.signals.open_asks == 0
+        and r.signals.pending_candidates == 0
+        for r in rest
+    )
+    checks["tied_rows_stand_in_name_order"] = [
+        r.account_name for r in rest
+    ] == sorted(r.account_name for r in rest)
+    checks["zephyr_closes_the_book"] = (
+        bool(rows) and rows[-1].account_id == "ACC-035"
+    )
+    checks["book_brief_renders"] = (
+        "ACC-006" in portfolio_mod.render_portfolio_text(book_brief)
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -1339,6 +1689,7 @@ def main() -> int:
         ("follow-through scenario", payload["followthrough_scenario"]),
         ("timeline + expiry scenario", payload["timeline_scenario"]),
         ("ingestion review scenario", payload["review_scenario"]),
+        ("portfolio scenario", payload["portfolio_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
