@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-11T18:14:29.207755+00:00",
+  "generated_at": "2026-10-11T19:03:09.164873+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -419,6 +419,22 @@
     },
     "passed": true
   },
+  "timeline_scenario": {
+    "checks": {
+      "expiring_exact_day_math": true,
+      "renewed_neighbour_never_flags": true,
+      "unrenewed_crosses_to_lapsed": true,
+      "gap_successor_named_not_covering": true,
+      "queue_rows_carry_the_watch": true,
+      "models_are_pure_projections": true,
+      "timeline_is_one_ordered_chronology": true,
+      "timeline_holds_every_fact_once": true,
+      "timeline_places_the_policy_on_its_window": true,
+      "timeline_interleaves_the_decision": true,
+      "timeline_leaks_nothing": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -428,7 +444,8 @@
     "brief_diff_scenario": true,
     "citation_persistence": true,
     "staleness_scenario": true,
-    "followthrough_scenario": true
+    "followthrough_scenario": true,
+    "timeline_scenario": true
   },
   "passed": true
 }

@@ -49,6 +49,17 @@ the deployment shape — and gates on:
   review; a duplicate arrival marks nothing; on a complete
   file the ask is refused and the refusal is named on the
   brief's audit trail. Gate: every check true.
+- **timeline + expiry-watch scenario** — a staged three-account
+  world: one policy expiring inside the horizon (EXPIRING,
+  exact day math), the same policy unrenewed past its end
+  (LAPSED, negative days), a near-identically named neighbour
+  whose renewal was on file before expiry (never flagged, at
+  any date), and a renewal that arrived after a gap (the lapse
+  named, the successor's start shown). The timeline must hold
+  every fact exactly once, in order, with no event from
+  another account; the desk queue's rows must carry the
+  watch; computing either model must mutate nothing.
+  Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -77,6 +88,8 @@ from zep_context_agent.datasets import DATASET_PRESENT, load_accounts  # noqa: E
 from zep_context_agent.offline_graph import OfflineContextGraph  # noqa: E402
 from zep_context_agent.ontology import Account, FactAssertion, SourceDocument  # noqa: E402
 from zep_context_agent.service import BriefService  # noqa: E402
+from zep_context_agent import timeline as timeline_mod  # noqa: E402
+from zep_context_agent.staleness import build_desk_queue  # noqa: E402
 from zep_context_agent.store import InMemoryBriefStore  # noqa: E402
 from zep_context_agent.temporal import resolve  # noqa: E402
 
@@ -193,6 +206,7 @@ def run_offline() -> dict:
     persistence_scenario = run_persistence_scenario(accounts)
     staleness_scenario = run_staleness_scenario(accounts)
     follow_scenario = run_followthrough_scenario(accounts)
+    timeline_scenario = run_timeline_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -204,6 +218,7 @@ def run_offline() -> dict:
         "citation_persistence": persistence_scenario["passed"],
         "staleness_scenario": staleness_scenario["passed"],
         "followthrough_scenario": follow_scenario["passed"],
+        "timeline_scenario": timeline_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -220,6 +235,7 @@ def run_offline() -> dict:
         "persistence_scenario": persistence_scenario,
         "staleness_scenario": staleness_scenario,
         "followthrough_scenario": follow_scenario,
+        "timeline_scenario": timeline_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -706,6 +722,275 @@ def run_followthrough_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_timeline_scenario(accounts: dict) -> dict:
+    """Time, visible: the timeline and the expiry watch, staged.
+
+    Three staged accounts. ACC-WA's policy ends 2026-03-20 with
+    no renewal: at 2026-03-01 the watch must read EXPIRING with
+    exactly 19 days; at 2026-04-05, LAPSED with −16. ACC-WB —
+    the near-identically named neighbour — renewed before
+    expiry (successor window covering the end): the watch must
+    stay silent at every date, and none of its paper may enter
+    ACC-WA's timeline. ACC-WG's renewal arrived after a gap:
+    during the gap the lapse is named, with the successor's
+    start shown. The timeline must hold every one of ACC-WA's
+    facts exactly once, in (date, kind) order, with the gate
+    decision interleaved; the desk queue's rows must carry the
+    watch; and computing either model must mutate nothing.
+    """
+    checks: dict[str, bool] = {}
+
+    def doc(doc_id, account_id, kind, title, received, assertions=()):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id=account_id,
+            kind=kind,
+            title=title,
+            received_at=received,
+            assertions=list(assertions),
+        )
+
+    def fact(predicate, value, valid_from, valid_to=None, entity_ref="", unit=""):
+        return FactAssertion(
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            entity_ref=entity_ref,
+        )
+
+    base_facts = [
+        ("legal_name", None),
+        ("risk_class", "light manufacturing"),
+        ("primary_location", "9 Watch Way, Akron, OH"),
+        ("annual_revenue_usd", 8000000),
+        ("claims_count_3yr", 1),
+    ]
+
+    def submission(doc_id, account_id, name, received):
+        assertions = []
+        for predicate, value in base_facts:
+            assertions.append(
+                fact(
+                    predicate,
+                    name if predicate == "legal_name" else value,
+                    date(2025, 1, 1),
+                    unit="USD" if predicate == "annual_revenue_usd" else "",
+                )
+            )
+        return doc(doc_id, account_id, "submission",
+                   f"Submission 2025 — {name}", received, assertions)
+
+    staged = {
+        "ACC-WA": Account(
+            account_id="ACC-WA",
+            display_name="Watchful Widgets Inc",
+            documents=[
+                submission("DOC-WA-SUB", "ACC-WA", "Watchful Widgets Inc",
+                           date(2025, 3, 10)),
+                doc(
+                    "DOC-WA-POL", "ACC-WA", "endorsement",
+                    "Policy POL-WA-2025 schedule — Watchful Widgets Inc",
+                    date(2025, 3, 15),
+                    assertions=[
+                        fact("policy_limit_usd", 3000000, date(2025, 3, 15),
+                             date(2026, 3, 20), entity_ref="POL-WA-2025",
+                             unit="USD"),
+                        fact("deductible_usd", 10000, date(2025, 3, 15),
+                             date(2026, 3, 20), entity_ref="POL-WA-2025",
+                             unit="USD"),
+                    ],
+                ),
+            ],
+        ),
+        "ACC-WB": Account(
+            account_id="ACC-WB",
+            display_name="Watchful Widgets Inc LLC",
+            documents=[
+                submission("DOC-WB-SUB", "ACC-WB", "Watchful Widgets Inc LLC",
+                           date(2025, 4, 1)),
+                doc(
+                    "DOC-WB-POL", "ACC-WB", "endorsement",
+                    "Policy POL-WB-2025 schedule — Watchful Widgets Inc LLC",
+                    date(2025, 4, 1),
+                    assertions=[
+                        fact("policy_limit_usd", 1500000, date(2025, 4, 1),
+                             date(2026, 3, 10), entity_ref="POL-WB-2025",
+                             unit="USD"),
+                    ],
+                ),
+                doc(
+                    "DOC-WB-REN", "ACC-WB", "endorsement",
+                    "Renewal POL-WB-2025 — Watchful Widgets Inc LLC",
+                    date(2026, 2, 20),
+                    assertions=[
+                        fact("policy_limit_usd", 1750000, date(2026, 3, 10),
+                             date(2027, 3, 10), entity_ref="POL-WB-2025",
+                             unit="USD"),
+                    ],
+                ),
+            ],
+        ),
+        "ACC-WG": Account(
+            account_id="ACC-WG",
+            display_name="Gap Renewal Co",
+            documents=[
+                doc(
+                    "DOC-WG-POL", "ACC-WG", "endorsement",
+                    "Policy POL-WG-2024 schedule — Gap Renewal Co",
+                    date(2025, 1, 20),
+                    assertions=[
+                        fact("policy_limit_usd", 900000, date(2025, 2, 1),
+                             date(2026, 2, 1), entity_ref="POL-WG-2024",
+                             unit="USD"),
+                    ],
+                ),
+                doc(
+                    "DOC-WG-REN", "ACC-WG", "endorsement",
+                    "Renewal POL-WG-2024 (late) — Gap Renewal Co",
+                    date(2026, 1, 25),
+                    assertions=[
+                        fact("policy_limit_usd", 950000, date(2026, 3, 1),
+                             date(2027, 3, 1), entity_ref="POL-WG-2024",
+                             unit="USD"),
+                    ],
+                ),
+            ],
+        ),
+    }
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=staged,
+    )
+    for account_id in staged:
+        service.ingest(account_id)
+
+    def rows(account_id, as_of, horizon=45):
+        return [
+            r
+            for r in service.expiry_watch(as_of=as_of, horizon_days=horizon)
+            if r.account_id == account_id
+        ]
+
+    wa = rows("ACC-WA", date(2026, 3, 1))
+    limit = next((r for r in wa if r.predicate == "policy_limit_usd"), None)
+    checks["expiring_exact_day_math"] = (
+        limit is not None
+        and limit.state == "expiring"
+        and limit.valid_to == date(2026, 3, 20)
+        and limit.days_remaining == 19
+        and limit.successor_exists is False
+        and {(r.predicate, r.days_remaining) for r in wa}
+        == {("policy_limit_usd", 19), ("deductible_usd", 19)}
+    )
+    checks["renewed_neighbour_never_flags"] = (
+        rows("ACC-WB", date(2026, 3, 1)) == []
+        and rows("ACC-WB", date(2026, 3, 10)) == []
+        and rows("ACC-WB", date(2026, 4, 5)) == []
+    )
+    wa_later = rows("ACC-WA", date(2026, 4, 5))
+    limit_later = next(
+        (r for r in wa_later if r.predicate == "policy_limit_usd"), None
+    )
+    checks["unrenewed_crosses_to_lapsed"] = (
+        limit_later is not None
+        and limit_later.state == "lapsed"
+        and limit_later.days_remaining == -16
+    )
+    wg = rows("ACC-WG", date(2026, 2, 15))
+    checks["gap_successor_named_not_covering"] = (
+        len(wg) == 1
+        and wg[0].state == "lapsed"
+        and wg[0].days_remaining == -14
+        and wg[0].successor_exists is True
+        and wg[0].successor_valid_from == date(2026, 3, 1)
+        and rows("ACC-WG", date(2026, 3, 15)) == []
+    )
+    queue = build_desk_queue(
+        staged,
+        service.store,
+        service.staleness_store,
+        follow_store=service.follow_store,
+        today=date(2026, 3, 1),
+        port=service.port,
+    )
+    by_account = {e.account_id: e for e in queue}
+    checks["queue_rows_carry_the_watch"] = (
+        {(x.predicate, x.state, x.days_remaining) for x in by_account["ACC-WA"].expiry}
+        == {("policy_limit_usd", "expiring", 19), ("deductible_usd", "expiring", 19)}
+        and by_account["ACC-WB"].expiry == []
+    )
+
+    brief = service.assemble("ACC-WA", as_of=date(2026, 3, 1))
+    service.decide(
+        brief.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: a decision for the timeline to interleave.",
+    )
+
+    def snapshot() -> tuple:
+        return (
+            [b.model_dump_json() for b in service.list_briefs()],
+            [r.model_dump_json() for r in service.list_staleness()],
+            [r.model_dump_json() for r in service.list_follow_through()],
+            {
+                aid: sorted(f.fact_id for f in service.port.get_facts(aid))
+                for aid in staged
+            },
+        )
+
+    before = snapshot()
+    timeline = service.account_timeline("ACC-WA", as_of=date(2026, 3, 1))
+    service.expiry_watch(as_of=date(2026, 3, 1), horizon_days=45)
+    checks["models_are_pure_projections"] = snapshot() == before
+
+    events = timeline.events
+    order_keys = [
+        (e.date, timeline_mod._KIND_RANK[e.kind]) for e in events
+    ]
+    checks["timeline_is_one_ordered_chronology"] = order_keys == sorted(order_keys)
+    fact_events = [e for e in events if e.kind == "fact"]
+    checks["timeline_holds_every_fact_once"] = len(fact_events) == len(
+        service.port.get_facts("ACC-WA")
+    )
+    limit_event = next(
+        (
+            e
+            for e in fact_events
+            if e.predicate == "policy_limit_usd"
+            and e.entity_ref == "POL-WA-2025"
+        ),
+        None,
+    )
+    checks["timeline_places_the_policy_on_its_window"] = (
+        limit_event is not None
+        and limit_event.date == date(2025, 3, 15)
+        and limit_event.valid_to == date(2026, 3, 20)
+        and limit_event.fact_status == "current"
+        and limit_event.doc_id == "DOC-WA-POL"
+    )
+    checks["timeline_interleaves_the_decision"] = any(
+        e.kind == "decision" and e.brief_id == brief.brief_id for e in events
+    )
+    foreign_docs = {
+        d.doc_id
+        for aid, account in staged.items()
+        if aid != "ACC-WA"
+        for d in account.documents
+    }
+    checks["timeline_leaks_nothing"] = all(
+        e.doc_id not in foreign_docs and "LLC" not in e.label
+        for e in events
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -780,6 +1065,7 @@ def main() -> int:
         ("citation persistence", payload["persistence_scenario"]),
         ("staleness scenario", payload["staleness_scenario"]),
         ("follow-through scenario", payload["followthrough_scenario"]),
+        ("timeline + expiry scenario", payload["timeline_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
