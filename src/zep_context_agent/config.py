@@ -65,6 +65,32 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+#: How far ahead the expiry watch looks, in days, when nothing
+#: configures it: close enough that a renewal chase started on
+#: the warning still lands before the lapse.
+DEFAULT_EXPIRY_HORIZON_DAYS = 45
+
+
+def expiry_horizon_days() -> int:
+    """The expiry watch's horizon: ``EXPIRY_HORIZON_DAYS`` from
+    the environment, :data:`DEFAULT_EXPIRY_HORIZON_DAYS` otherwise.
+    A non-positive value is a configuration error, not a quiet
+    zero — it falls back to the default rather than disabling
+    the watch by typo."""
+    days = env_int("EXPIRY_HORIZON_DAYS", DEFAULT_EXPIRY_HORIZON_DAYS)
+    return days if days > 0 else DEFAULT_EXPIRY_HORIZON_DAYS
+
+
 def context_backend() -> str:
     """Which ContextPort adapter serves: ``zep`` (default target) or
     ``offline``. Code defaults to offline when no Zep key is present —

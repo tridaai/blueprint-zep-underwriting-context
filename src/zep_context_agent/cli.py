@@ -9,6 +9,8 @@ serves — for operators and for smoke runs:
     zep-context-agent decide <brief_id> proceed --actor "…" --reason "…"
     zep-context-agent show <brief_id>
     zep-context-agent queue
+    zep-context-agent timeline ACC-001 [--as-of 2026-06-01]
+    zep-context-agent watch [--as-of 2026-06-01] [--horizon-days 45]
 
 Configuration is the environment's (``CONTEXT_BACKEND`` & friends —
 see .env.example). Code defaults to the offline adapter when no
@@ -27,6 +29,7 @@ from .errors import ContextError
 from .followthrough import render_follow_through_text
 from .render import render_brief_text
 from .service import BriefService
+from .timeline import render_expiry_watch_text, render_timeline_text
 
 
 def _service() -> BriefService:
@@ -66,6 +69,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Request-info follow-through records (drafts + item state)",
     )
     p_asks.add_argument("account_id", nargs="?", default=None)
+
+    p_timeline = sub.add_parser(
+        "timeline",
+        help="One account's chronology: facts on their windows, "
+        "episodes, decisions, flags, asks",
+    )
+    p_timeline.add_argument("account_id")
+    p_timeline.add_argument("--as-of", type=date.fromisoformat, default=None)
+
+    p_watch = sub.add_parser(
+        "watch",
+        help="The expiry watch: relied-on facts running out",
+    )
+    p_watch.add_argument("--as-of", type=date.fromisoformat, default=None)
+    p_watch.add_argument("--horizon-days", type=int, default=None)
 
     args = parser.parse_args(argv)
     try:
@@ -127,7 +145,38 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     if entry.ready_for_review:
                         line += "  READY FOR REVIEW"
+                for x in entry.expiry:
+                    if x.state == "lapsed":
+                        line += (
+                            f"  LAPSED {x.predicate} "
+                            f"({-x.days_remaining}d ago)"
+                        )
+                    else:
+                        line += (
+                            f"  EXPIRING {x.predicate} "
+                            f"(in {x.days_remaining}d)"
+                        )
                 print(line)
+        elif args.command == "timeline":
+            timeline = service.account_timeline(
+                args.account_id, as_of=args.as_of
+            )
+            print(render_timeline_text(timeline))
+        elif args.command == "watch":
+            from datetime import date as _date
+
+            from .config import expiry_horizon_days
+
+            as_of = args.as_of or _date.today()
+            horizon = (
+                args.horizon_days
+                if args.horizon_days is not None
+                else expiry_horizon_days()
+            )
+            rows = service.expiry_watch(
+                as_of=as_of, horizon_days=horizon
+            )
+            print(render_expiry_watch_text(rows, as_of, horizon))
         elif args.command == "asks":
             records = service.list_follow_through(args.account_id)
             if not records:

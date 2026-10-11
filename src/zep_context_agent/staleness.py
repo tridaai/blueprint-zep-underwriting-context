@@ -352,12 +352,21 @@ def build_desk_queue(
     *,
     follow_store=None,
     today: date | None = None,
+    port: ContextPort | None = None,
+    expiry_horizon_days: int | None = None,
 ) -> list[DeskQueueEntry]:
     """Every account, in the order the desk should work it:
     stale decisions first (oldest decision first), awaiting
     briefs (oldest first), clean decisions (most recent first),
     accounts with no brief last. Pure reads — the queue
-    decides nothing and mutates nothing."""
+    decides nothing and mutates nothing.
+
+    When ``port`` is given, each row also carries the
+    account's expiry watch (see :mod:`timeline`) computed as
+    of ``today``: the relied-on facts running out under the
+    account. The ordering is untouched by the watch — a
+    lapsing policy does not outrank a stale decision; the
+    row simply says both."""
     today = today or date.today()
     stale_rows: list[tuple[datetime, DeskQueueEntry]] = []
     awaiting_rows: list[tuple[datetime, DeskQueueEntry]] = []
@@ -384,6 +393,24 @@ def build_desk_queue(
                     actor=latest.decision.actor,
                     decided_on=latest.decision.decided_at.date(),
                 )
+        if port is not None:
+            from . import timeline as timeline_mod
+            from .config import (
+                expiry_horizon_days as _default_horizon,
+            )
+
+            entry.expiry = timeline_mod.desk_expiry(
+                timeline_mod.expiry_watch_for_account(
+                    port=port,
+                    account=account,
+                    as_of=today,
+                    horizon_days=(
+                        expiry_horizon_days
+                        if expiry_horizon_days is not None
+                        else _default_horizon()
+                    ),
+                )
+            )
         if follow_store is not None:
             # The ask riding on the account's latest DECIDED brief
             # (see followthrough.py). Attached whatever the row's

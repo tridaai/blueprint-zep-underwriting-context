@@ -243,6 +243,89 @@ class FollowThroughRecord(BaseModel):
     updated_at: datetime
 
 
+class TimelineEvent(BaseModel):
+    """One dated entry in an account's timeline (see
+    :mod:`timeline`): a fact on its validity window, an episode
+    arriving, a gate decision, a staleness flag opening or
+    resolving, a follow-through ask opening, an item being
+    received, an ask completing. ``date`` is the event's point
+    in the chronology — for a fact, the day its window opens;
+    ``valid_to`` carries the window's end for fact events.
+    ``fact_status`` is the temporal rule's verdict at the
+    timeline's as-of date: ``current``, ``superseded`` (replaced
+    by a successor), ``expired`` (window closed, no successor),
+    or ``scheduled`` (window has not opened yet)."""
+
+    kind: Literal[
+        "episode",
+        "fact",
+        "decision",
+        "staleness_flag",
+        "staleness_resolved",
+        "follow_opened",
+        "follow_received",
+        "follow_completed",
+    ]
+    date: date
+    label: str
+    detail: str = ""
+    # Fact events.
+    predicate: str = ""
+    value: FactValue | None = None
+    unit: str = ""
+    entity_ref: str = ""
+    valid_to: date | None = None
+    fact_status: Literal[
+        "current", "superseded", "expired", "scheduled"
+    ] | None = None
+    # Citation (fact + episode events name their paper).
+    episode_id: str = ""
+    doc_id: str = ""
+    doc_title: str = ""
+    # Record references (decision / watch / ask events).
+    brief_id: str = ""
+    record_id: str = ""
+
+
+class AccountTimeline(BaseModel):
+    """An account's whole recorded history as one chronology —
+    a pure projection over the port and the record stores,
+    assembled in code (see :mod:`timeline`)."""
+
+    account_id: str
+    account_name: str
+    as_of: date
+    events: list[TimelineEvent] = Field(default_factory=list)
+
+
+class ExpiryEntry(BaseModel):
+    """One row of the expiry watch (see :mod:`timeline`): a
+    relied-on fact whose validity window closes within the
+    horizon (``expiring``) or has closed with no successor in
+    force (``lapsed``). ``days_remaining`` is negative when
+    lapsed. ``successor_exists`` names that a later fact for
+    the same predicate and entity is on file even though it
+    does not cover the lapse (it starts after a gap) — a fact
+    whose successor's window *covers* its end never appears
+    here at all: a renewal in force is not watch noise."""
+
+    account_id: str
+    account_name: str
+    predicate: str
+    entity_ref: str = ""
+    value: FactValue
+    unit: str = ""
+    valid_from: date
+    valid_to: date
+    state: Literal["expiring", "lapsed"]
+    days_remaining: int
+    successor_exists: bool = False
+    successor_valid_from: date | None = None
+    episode_id: str = ""
+    doc_id: str = ""
+    doc_title: str = ""
+
+
 class DeskDecision(BaseModel):
     """The decision summary a desk-queue row shows."""
 
@@ -270,6 +353,22 @@ class DeskStaleness(BaseModel):
     age_days: int
     trigger_episode_ids: list[str] = Field(default_factory=list)
     changes: BriefDiff
+
+
+class DeskExpiry(BaseModel):
+    """An account's expiry-watch rows, as the desk queue shows
+    them: the relied-on facts running out under this account,
+    soonest (or most lapsed) first. Empty when nothing the
+    account relies on is ending — a renewed fact never appears."""
+
+    predicate: str
+    entity_ref: str = ""
+    value: FactValue
+    unit: str = ""
+    valid_to: date
+    state: Literal["expiring", "lapsed"]
+    days_remaining: int
+    successor_exists: bool = False
 
 
 class DeskQueueEntry(BaseModel):
@@ -301,6 +400,12 @@ class DeskQueueEntry(BaseModel):
     # once the underwriter re-assembles, the new brief is the work.
     follow_through: DeskFollowThrough | None = None
     ready_for_review: bool = False
+    # The expiry watch for this account (see :mod:`timeline`),
+    # computed as of the queue's date when the queue is built
+    # with port access. Facts the account relies on that are
+    # running out — the third clock on the row, beside the
+    # decision's staleness and the ask's completeness.
+    expiry: list[DeskExpiry] = Field(default_factory=list)
 
 
 # -- API request shapes ------------------------------------------------------

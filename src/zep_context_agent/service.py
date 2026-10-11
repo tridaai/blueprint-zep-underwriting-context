@@ -201,6 +201,43 @@ class BriefService:
             self.store,
             self.staleness_store,
             follow_store=self.follow_store,
+            port=self.port,
+        )
+
+    # -- timeline + the expiry watch -------------------------------------------
+
+    def account_timeline(self, account_id: str, as_of: date | None = None):
+        """The account's chronology (see timeline.build_account_timeline):
+        facts on their windows, episodes, decisions, flags, asks —
+        one ordering, a pure projection."""
+        from . import timeline as timeline_mod
+
+        account = self.get_account(account_id)
+        return timeline_mod.build_account_timeline(
+            port=self.port,
+            account=account,
+            brief_store=self.store,
+            staleness_store=self.staleness_store,
+            follow_store=self.follow_store,
+            as_of=as_of or date.today(),
+        )
+
+    def expiry_watch(
+        self, as_of: date | None = None, horizon_days: int | None = None
+    ) -> list:
+        """The desk-level expiry watch (see timeline.build_expiry_watch):
+        relied-on facts running out, most lapsed first. The
+        horizon defaults to the configured EXPIRY_HORIZON_DAYS."""
+        from . import timeline as timeline_mod
+        from .config import expiry_horizon_days
+
+        return timeline_mod.build_expiry_watch(
+            port=self.port,
+            accounts=self.accounts,
+            as_of=as_of or date.today(),
+            horizon_days=(
+                horizon_days if horizon_days is not None else expiry_horizon_days()
+            ),
         )
 
     # -- briefs ---------------------------------------------------------------

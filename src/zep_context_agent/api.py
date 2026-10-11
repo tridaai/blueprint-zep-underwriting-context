@@ -30,6 +30,7 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -272,6 +273,34 @@ def create_app(service: BriefService | None = None) -> FastAPI:
                 ),
             )
         return record.model_dump(mode="json")
+
+    # -- timeline + the expiry watch ---------------------------------------------
+
+    @app.get("/accounts/{account_id}/timeline")
+    def account_timeline(
+        account_id: str, as_of: date | None = None
+    ) -> dict:
+        """The account's chronology: every fact on its validity
+        window with its citation, episodes, decisions, staleness
+        flags, and follow-through asks interleaved in one
+        ordering. A pure projection — computing it mutates
+        nothing. ``as_of`` pins the temporal rule's verdicts
+        (defaults to today)."""
+        timeline = svc.account_timeline(account_id, as_of=as_of)
+        return timeline.model_dump(mode="json")
+
+    @app.get("/expiry-watch")
+    def expiry_watch(
+        as_of: date | None = None, horizon_days: int | None = None
+    ) -> list[dict]:
+        """The desk-level expiry watch: relied-on facts whose
+        windows close within the horizon (EXPIRING) or have
+        closed with no successor in force (LAPSED), most
+        lapsed first. Facts a renewal covers never appear."""
+        return [
+            r.model_dump(mode="json")
+            for r in svc.expiry_watch(as_of=as_of, horizon_days=horizon_days)
+        ]
 
     # -- briefs + gate ----------------------------------------------------------
 
