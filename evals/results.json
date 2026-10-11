@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-11T17:34:14.777182+00:00",
+  "generated_at": "2026-10-11T18:14:29.207755+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -401,6 +401,24 @@
     },
     "passed": true
   },
+  "followthrough_scenario": {
+    "checks": {
+      "ask_opened": true,
+      "ask_items_exact": true,
+      "draft_names_the_items": true,
+      "queue_open_state": true,
+      "wave1_partial": true,
+      "duplicate_marks_nothing": true,
+      "wave2_partial": true,
+      "wave3_completes_the_ask": true,
+      "queue_ready_for_review": true,
+      "decided_brief_byte_identical": true,
+      "final_brief_leakage_free": true,
+      "final_brief_has_no_missing": true,
+      "complete_file_records_but_opens_no_ask": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -409,7 +427,8 @@
     "citation_completeness": true,
     "brief_diff_scenario": true,
     "citation_persistence": true,
-    "staleness_scenario": true
+    "staleness_scenario": true,
+    "followthrough_scenario": true
   },
   "passed": true
 }

@@ -33,11 +33,14 @@ material to the open ask. This module is the follow-through:
   a requested predicate that is now a current fact is marked
   ``received``, with the episode the assembly cites for it. A
   requested document counts as resent when a non-quarantined
-  episode exists carrying the quarantined document's id, or a
-  document with the same title under a new id — the two shapes
-  a corrected resend takes. Marking never reads raw episode
-  text; it reads the same resolved fact set an underwriter
-  would see in a brief.
+  episode exists carrying the same title under a new document
+  id. A resend under the *same* document id cannot count:
+  ingestion is idempotent by document id, so it is
+  indistinguishable from a duplicate arrival and the quarantined
+  episode stands — the broker's corrected copy must arrive as
+  a new document, as every wave in the dataset does. Marking
+  never reads raw episode text; it reads the same resolved
+  fact set an underwriter would see in a brief.
 - **The record closes when every item is received** — status
   ``open`` → ``partially_received`` → ``complete``, with the
   completion stamp. Nothing auto-assembles or auto-decides at
@@ -356,9 +359,10 @@ def evaluate_after_ingestion(
       current fact in the fresh assembly; the satisfying episode
       is the one the assembly cites for that fact;
     - a *document* item is received when a non-quarantined
-      episode carries the quarantined document's id, or a
-      document with the same title under a new id (a corrected
-      resend), choosing the earliest such episode in file order.
+      episode — not the quarantined episode itself — carries
+      the requested document's title (a corrected resend under
+      a new document id), choosing the earliest such episode
+      in file order.
 
     No new episodes (an idempotent re-ingestion) means no
     evaluation — a duplicate arrival marks nothing."""
@@ -395,16 +399,14 @@ def evaluate_after_ingestion(
                     item.received_episode_id = fact.episode_id
                     item.received_at = at
                     touched = True
-            else:  # document item: a clean resend, either shape
+            else:  # document item: a clean resend under a new id
                 match = next(
                     (
                         e
                         for e in episodes
                         if not e.quarantined
-                        and (
-                            e.doc_id == item.doc_id
-                            or e.title == item.doc_title
-                        )
+                        and e.episode_id != item.episode_id
+                        and e.title == item.doc_title
                     ),
                     None,
                 )
