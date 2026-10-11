@@ -494,6 +494,77 @@ plus the one piece of arithmetic the round adds:
   closes the list at zero and the unopened thirty-nine
   stand at never-decided.
 
+## Support grading — the brief's soft spots
+
+Every fact on the brief is cited, and citations are not
+equal: a fact from the gate's own decision memo, one from a
+filed inspection, and one confirmed out of a broker's letter
+carry different weight, and until now the brief treated them
+identically. `support.py` grades each *current* fact at
+assembly, in code, from provenance the graph already carries:
+
+- **The inputs.** The citing document's origin tier
+  (`ontology.origin_tier_for_kind` — the review gate's tiers,
+  reused, never redefined); the number of *independent
+  supporting documents* — distinct `doc_id`s whose assertions
+  for the fact's key cover the as-of date and agree with the
+  resolved value, the citing document included; and the
+  *contest* — whether the temporal resolution displaced an
+  earlier, different value for the key. Independence is
+  counted in documents, never episodes: ingestion is
+  idempotent per document, and one episode per document
+  means a re-ingestion cannot inflate support. Superseded
+  statuses are read off `temporal.resolve`'s own pairing —
+  the grade re-implements no temporality. A fact whose
+  window has closed neither supports nor contests; neither
+  does a future one. Quarantined documents and unconfirmed
+  candidates are not facts, so they can do neither either —
+  the planted injection asserting a claims count of zero
+  leaves the filed count uncontested.
+- **The grades.** `STRONG` — the system's own record, or
+  filed paper corroborated by a second document.
+  `STANDARD` — a single filed document, or a broker's
+  letter with corroboration (correspondence caps there: a
+  letter never grades STRONG, however corroborated).
+  `THIN` — a single correspondence source. Any grade whose
+  value displaced an earlier one is demoted one step
+  (STRONG → STANDARD → THIN) and carries the displaced
+  value and its document, named. The vocabulary and the
+  reasons are authored in `support.py`, the reasons ride
+  the grade, and the legend is printed on the brief itself,
+  so no reader needs the code to interpret a grade.
+- **The surfaces.** The grade rides `CitedFact.support`;
+  the text brief tags each current fact's line and adds a
+  **soft spots** section listing the THIN facts and only
+  those — predicate, value, why, the replaced value, the
+  citation — or one line saying none. The desk queue
+  carries the account's thin count beside the expiry watch
+  (computed under the same condition — port access; `None`,
+  not zero, without it), and the portfolio row carries it
+  too. On the portfolio the count is displayed and *only*
+  displayed: it has no entry in `PORTFOLIO_WEIGHTS`, enters
+  no score, and cannot move a row. The weights are
+  published data; if the desk ever wants thin support to
+  rank, that is a separate deliberate change to the
+  weights, argued in the open — not a side effect of a
+  count. The queue's order likewise never reads it.
+- **No new state, no decision impact.** Grades are derived
+  at assembly from facts already stored; there is no
+  migration, because briefs are whole JSONB payloads and
+  `CitedFact.support` defaults to absent, so briefs written
+  before grading parse unchanged and render an honest
+  "not graded" instead of a verdict nobody computed. A
+  grade change therefore never makes a decided brief look
+  edited: the decided record is byte-identical, the upgrade
+  shows only on the fresh brief, and the brief diff — which
+  compares values, not grades — is unmoved. No gate reads a
+  grade: the staleness diff, the follow-through matcher,
+  and the decision path are untouched, and a brief full of
+  thin facts decides in exactly the same shape as a strong
+  one. Pinned in `tests/test_support.py` and the eval
+  pack's support scenario, which derives ACC-001's whole
+  grade map by hand from its planted documents.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -603,6 +674,7 @@ src/zep_context_agent/
   review.py        the ingestion review gate: the queue read model + text rendering
   timeline.py      the account timeline + the expiry watch (pure read models)
   portfolio.py     the morning portfolio brief: signals counted, the book ranked
+  support.py       support grading: how well-backed each current fact is (derived at assembly)
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off

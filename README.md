@@ -115,6 +115,30 @@ ingest → screen → assemble → verify → gate
 - **Assemble** resolves every fact temporally as of today: current
   facts with citations, superseded facts with the successor that
   replaced them, and a missing-facts list instead of a guess.
+- **Grade the support** — every citation is honest, but citations
+  are not equal, and the brief says so. Each current fact carries
+  a **support grade** computed in code from its provenance: the
+  tier of its citing document, the number of independent
+  documents whose in-force assertions agree with it (distinct
+  documents — a document re-ingested is still one document), and
+  whether an earlier, different value was displaced to put it
+  there. **STRONG** is the system's own record, or filed paper a
+  second document corroborates; **STANDARD** is a single filed
+  document, or a broker's letter with corroboration behind it;
+  **THIN** is a single correspondence source, or a value standing
+  where an earlier value was replaced. A **soft spots** section
+  lists the thin facts and only those — predicate, value, why it
+  is thin, the value it replaced, and its citation — so the
+  underwriter knows what to lean on and what to verify; a brief
+  with none says so in one line. The desk queue and the
+  portfolio brief carry each account's thin-fact count beside
+  their other signals — displayed, and deliberately not weighted:
+  the portfolio's published ranking does not move for it. And
+  the grade is information only: it changes no gate, no
+  staleness rule, no ask. A second document agreeing upgrades
+  the grade on the next assembly; the decided brief that
+  carried the old grade is history and stays exactly as
+  written.
 - **Verify** re-checks the assembled brief in code: citation
   completeness (every current fact cites an episode of *this*
   account) and leakage (no fact, episode, or edge from any other
@@ -311,7 +335,18 @@ weights, the zero-signal accounts closing the list by name,
 and the build leaving the queue, the watch, and every store
 byte-identical; it then ranks the seeded book itself, where
 ACC-006 must head the list on its two planted lapsed facts
-and the other thirty-nine stand tied at never-decided. The golden cases assert the
+and the other thirty-nine stand tied at never-decided. An
+eighth, the **support scenario**, stages the upgrade (a fact
+on one document grades STANDARD, its second document lands,
+the fresh brief grades it STRONG and the decided brief stays
+byte-identical at the old grade) and the thin shapes (a
+contested limit, a location on one letter, a corroborated
+letter capped at STANDARD), then checks the seeded book:
+ACC-001's full grade map against the map derived by hand
+from its planted documents — five thin facts, and the claims
+count uncontested because the quarantined injection never
+became a fact — with the queue and portfolio counts riding
+unweighted, ranking untouched. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the
@@ -337,8 +372,8 @@ and reported, not gated.
 ```
 src/zep_context_agent/   the agent: ontology, port + adapters,
                            ingestion, review gate, assembly,
-                           guardrails, graph, cache, service,
-                           API, console
+                           support grading, guardrails, graph,
+                           cache, service, API, console
 migrations/                numbered SQL migrations (Postgres)
 evals/                     the golden eval pack and its runner
 data/                      the synthetic dataset generator
