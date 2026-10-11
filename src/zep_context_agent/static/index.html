@@ -39,6 +39,9 @@
   .pill.indigo { background: var(--indigo-soft); border-color: #C9CDF5; color: var(--indigo); }
   .pill.ok { color: var(--ok); border-color: #BFE3CF; background: #EFFAF3; }
   .pill.warn { background: var(--warn-bg); border-color: var(--warn-line); color: #7A5410; }
+  .pill.stale { background: var(--bad-bg); border-color: var(--bad-line); color: #8A2A2A; }
+  .queue-row { cursor: pointer; }
+  .queue-row:hover { border-color: var(--indigo); }
   main { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 140px); }
   aside { border-right: 1px solid var(--line); padding: 18px; overflow-y: auto; max-height: calc(100vh - 140px); }
   aside h2, section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
@@ -95,6 +98,7 @@
     <div class="sub">Account briefs assembled from a context graph: current facts only, every fact cited, superseded shown as superseded — then the underwriter decides.</div>
   </div>
   <div class="spacer"></div>
+  <button class="action secondary" id="btn-queue">Desk queue</button>
   <span class="pill indigo" id="backend-pill">backend: …</span>
   <span class="pill" id="db-pill">…</span>
 </header>
@@ -105,7 +109,7 @@
     <div id="accounts"></div>
   </aside>
   <section id="detail">
-    <div class="empty">Pick an account to see its file, ingest it into the context graph, and assemble the underwriter's brief.</div>
+    <div class="empty">Loading the desk queue…</div>
   </section>
 </main>
 
@@ -151,6 +155,57 @@ async function loadAccounts() {
   }
 }
 
+const STATE_LABEL = {
+  decided_stale: "DECIDED — STALE",
+  awaiting: "AWAITING UNDERWRITER",
+  decided: "DECIDED",
+  no_brief: "NO BRIEF YET",
+};
+const STATE_PILL = { decided_stale: "stale", awaiting: "warn", decided: "ok", no_brief: "" };
+
+async function showQueue() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const queue = await api("/desk-queue");
+  const el = $("#detail");
+  let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The desk queue</h2>
+    <p class="small">Every account in work order: decisions resting on superseded facts first (oldest decision first), then briefs waiting at the gate, then clean decisions. The queue is a read model — it decides nothing.</p>`;
+  if (!queue.length) {
+    html += `<div class="empty">No accounts.</div>`;
+  }
+  for (const e of queue) {
+    html += `<div class="card queue-row" data-account="${e.account_id}">
+      <div class="row">
+        <strong></strong>
+        <span class="pill ${STATE_PILL[e.state]}">${STATE_LABEL[e.state] || e.state}</span>
+        <span class="pill">${e.account_id}</span>
+        ${e.brief_id ? `<span class="small">latest brief ${e.brief_id}${e.brief_as_of ? " · as of " + e.brief_as_of : ""}</span>` : ""}
+      </div>`;
+    if (e.decision) {
+      html += `<div class="small" style="margin-top:6px">Decision: ${e.decision.action} by ${e.decision.actor}${e.decision.decided_on ? " on " + e.decision.decided_on : ""}</div>`;
+    }
+    if (e.staleness) {
+      const s = e.staleness;
+      const moved = [
+        ...s.changes.superseded.map(c => `<li>~ superseded: <strong>${c.predicate}</strong> — ${fmtVal(c.previous_value, c.unit)} → ${c.current_value === null || c.current_value === undefined ? "no current successor" : fmtVal(c.current_value, c.unit)}</li>`),
+        ...s.changes.added.map(f => `<li>+ added: <strong>${f.predicate}</strong> — ${fmtVal(f.value, f.unit)}</li>`),
+        ...s.changes.removed.map(f => `<li>− removed: <strong>${f.predicate}</strong> — ${fmtVal(f.value, f.unit)}, no longer current</li>`),
+      ];
+      html += `<div class="small" style="margin-top:6px">The facts moved after that decision — flagged ${String(s.flagged_at).slice(0, 10)} (${s.age_days}d ago), triggered by ${s.trigger_episode_ids.join(", ")}. It clears only when an underwriter decides again on current facts.</div>` +
+        (moved.length ? `<ul>${moved.join("")}</ul>` : "");
+    }
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+  const names = {};
+  for (const e of queue) names[e.account_id] = e.account_name;
+  el.querySelectorAll(".queue-row").forEach(row => {
+    row.querySelector("strong").textContent = names[row.dataset.account] || row.dataset.account;
+    row.onclick = () => selectAccount(row.dataset.account);
+  });
+}
+
 async function selectAccount(accountId) {
   currentAccount = accountId;
   currentBrief = null;
@@ -160,6 +215,9 @@ async function selectAccount(accountId) {
   const el = $("#detail");
   el.innerHTML = `
     <div class="row">
+      <button class="action secondary" id="btn-back-queue">← Desk queue</button>
+    </div>
+    <div class="row" style="margin-top:12px">
       <h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0;"></h2>
       <span class="pill">${a.account_id}</span>
       <span class="pill">${a.documents.length} source documents</span>
@@ -173,13 +231,15 @@ async function selectAccount(accountId) {
     <div id="briefs-list"></div>
     <div id="brief-view"></div>`;
   el.querySelector("h2").textContent = a.display_name;
+  $("#btn-back-queue").onclick = () => showQueue();
   $("#btn-ingest").onclick = async () => {
     const s = $("#ingest-status");
     s.textContent = "ingesting…";
     try {
       const r = await api(`/accounts/${accountId}/ingest`, { method: "POST" });
       s.textContent = `${r.episodes.length} episodes ingested` +
-        (r.quarantined.length ? ` · quarantined: ${r.quarantined.join(", ")}` : "");
+        (r.quarantined.length ? ` · quarantined: ${r.quarantined.join(", ")}` : "") +
+        (r.open_staleness && r.open_staleness.length ? " · a recorded decision is now STALE — see the desk queue" : "");
     } catch (e) { s.textContent = "Error: " + e.message; }
   };
   $("#btn-assemble").onclick = async () => {
@@ -335,7 +395,8 @@ async function init() {
     $("#backend-pill").textContent = "context backend: " + r.context_backend;
     $("#db-pill").textContent = "database: " + r.database;
   } catch (e) { /* readiness is informational in the console */ }
-  await loadAccounts();
+  $("#btn-queue").onclick = () => showQueue();
+  await showQueue();
 }
 init();
 </script>

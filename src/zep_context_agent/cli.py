@@ -8,6 +8,7 @@ serves — for operators and for smoke runs:
     zep-context-agent brief ACC-001 [--as-of 2026-06-01]
     zep-context-agent decide <brief_id> proceed --actor "…" --reason "…"
     zep-context-agent show <brief_id>
+    zep-context-agent queue
 
 Configuration is the environment's (``CONTEXT_BACKEND`` & friends —
 see .env.example). Code defaults to the offline adapter when no
@@ -54,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     p_show = sub.add_parser("show", help="Render a stored brief as text")
     p_show.add_argument("brief_id")
 
+    sub.add_parser(
+        "queue",
+        help="The desk queue: stale decisions first, then awaiting briefs",
+    )
+
     args = parser.parse_args(argv)
     try:
         service = _service()
@@ -85,6 +91,28 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "show":
             print(render_brief_text(service.get_brief(args.brief_id)))
+        elif args.command == "queue":
+            for entry in service.desk_queue():
+                line = f"{entry.account_id}  {entry.state}"
+                if entry.decision is not None:
+                    line += (
+                        f"  {entry.decision.action} by "
+                        f"{entry.decision.actor} on "
+                        f"{entry.decision.decided_on}"
+                    )
+                if entry.staleness is not None:
+                    s = entry.staleness
+                    moved = ", ".join(
+                        f"{c.predicate} {c.previous_value} → "
+                        f"{c.current_value}"
+                        for c in s.changes.superseded
+                    )
+                    line += (
+                        f"  STALE {s.age_days}d (flagged "
+                        f"{s.flagged_at.date()})"
+                        + (f": {moved}" if moved else "")
+                    )
+                print(line)
     except ContextError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

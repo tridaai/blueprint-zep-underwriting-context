@@ -207,7 +207,27 @@ def create_app(service: BriefService | None = None) -> FastAPI:
             "account_id": account_id,
             "episodes": [e.model_dump(mode="json") for e in episodes],
             "quarantined": [e.doc_id for e in episodes if e.quarantined],
+            "open_staleness": [
+                r.record_id
+                for r in svc.list_staleness(account_id)
+                if r.resolved_by_brief is None
+            ],
         }
+
+    # -- the desk queue + staleness --------------------------------------------
+
+    @app.get("/desk-queue")
+    def desk_queue() -> list[dict]:
+        """Every account in desk order: stale decisions first,
+        then briefs awaiting the gate, then clean decisions.
+        A read model — it decides nothing."""
+        return [e.model_dump(mode="json") for e in svc.desk_queue()]
+
+    @app.get("/staleness")
+    def list_staleness(account_id: str | None = None) -> list[dict]:
+        return [
+            r.model_dump(mode="json") for r in svc.list_staleness(account_id)
+        ]
 
     # -- briefs + gate ----------------------------------------------------------
 
