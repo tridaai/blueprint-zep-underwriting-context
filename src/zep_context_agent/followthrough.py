@@ -46,6 +46,22 @@ material to the open ask. This module is the follow-through:
   completion stamp. Nothing auto-assembles or auto-decides at
   completion: the desk queue signals ``ready_for_review`` and
   the underwriter works the account as usual.
+- **Renewal items ride the same record** (see
+  :mod:`chases`). A renewal chase's send opens a record with
+  ``origin == "renewal_chase"`` whose items are ``renewal``
+  items: one per expiring fact, carrying the chased fact's
+  identity. Their recognition is deliberately *not* the
+  predicate rule — the expiring fact is already a current
+  fact, so presence proves nothing. A renewal item is
+  received when a fact whose window **covers the chased
+  fact's end** is on file: the timeline's successor rule
+  (:func:`timeline.covering_successor`), the one relation,
+  read here and never re-derived. A renewal that starts
+  after a gap does not satisfy the item: the gap was real
+  exposure, and the chase stays open saying so. The draft
+  (:func:`compose_renewal_draft`) is composed in code from
+  the facts and their expiries, in this module's drafting
+  idiom — deterministic, headed DRAFT, never sent.
 - **Independence from the staleness watch.** The same ingestion
   can complete an ask and stale a decision; the two records
   never write each other. A fresh decision resolves staleness
@@ -69,9 +85,14 @@ from datetime import date, datetime, timezone
 
 from . import assembly
 from .errors import FollowThroughError
-from .ontology import Account, predicate_label
+from .ontology import Account, Fact, predicate_label
 from .ports import ContextPort
-from .schemas import Brief, FollowThroughItem, FollowThroughRecord
+from .schemas import (
+    Brief,
+    ExpiryEntry,
+    FollowThroughItem,
+    FollowThroughRecord,
+)
 
 
 def _now() -> datetime:
@@ -292,6 +313,140 @@ def compose_draft(brief: Brief, items: list[FollowThroughItem]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def compose_renewal_items(
+    rows: list[ExpiryEntry], facts: list[Fact]
+) -> list[FollowThroughItem]:
+    """The structured ask a renewal chase makes: one renewal
+    item per flagged fact in ``rows`` (the expiry watch's own
+    rows for one account and predicate — the watch owns the
+    verdict that these facts are running out). Each item
+    carries the chased fact's identity from ``facts`` — the
+    graph facts the rows were computed over — so recognition
+    can apply the successor rule to exactly that fact. A row
+    whose fact cannot be found is a broken invariant between
+    the watch and the graph, and is refused by name rather
+    than chased blind."""
+    items = []
+    for row in rows:
+        fact = next(
+            (
+                f
+                for f in facts
+                if f.predicate == row.predicate
+                and f.entity_ref == row.entity_ref
+                and f.episode_id == row.episode_id
+                and f.valid_to == row.valid_to
+            ),
+            None,
+        )
+        if fact is None:
+            raise FollowThroughError(
+                f"The expiry watch flagged {row.predicate} "
+                f"[{row.entity_ref}] on account {row.account_id} "
+                f"from episode {row.episode_id}, but no such fact "
+                "is in the graph; a chase cannot name what it is "
+                "chasing."
+            )
+        items.append(
+            FollowThroughItem(
+                kind="renewal",
+                predicate=row.predicate,
+                label=predicate_label(row.predicate),
+                doc_id=row.doc_id,
+                doc_title=row.doc_title,
+                entity_ref=row.entity_ref,
+                fact_id=fact.fact_id,
+                value=row.value,
+                unit=row.unit,
+                expires_on=row.valid_to,
+            )
+        )
+    if not items:
+        raise FollowThroughError(
+            "A renewal chase with no expiring facts asks for "
+            "nothing; there is no chase to send."
+        )
+    return items
+
+
+def compose_renewal_draft(
+    brief: Brief, items: list[FollowThroughItem], *, actor: str
+) -> str:
+    """The renewal request, as deterministic text.
+
+    Composed from the expiring facts and their expiries only —
+    each line names the fact, the value on file, the document
+    it stands on, and the day its window closes, and asks for
+    the renewal document that restates it for the new term.
+    Headed DRAFT like every ask here: prepared for the
+    underwriter to copy, never sent by the system."""
+    lines = [
+        "DRAFT — renewal request, prepared for the underwriter "
+        "to send; not sent.",
+        f"To: the broker of record for {brief.account_name} "
+        f"({brief.account_id})",
+        f"Re: Renewal documents for {brief.account_name} — "
+        f"chase opened by {actor} on brief {brief.brief_id}",
+        "",
+        "The following on file is running out. Please send the "
+        "renewal document that restates each item for the new "
+        "term:",
+    ]
+    for item in items:
+        value = (
+            f"{item.value:,} {item.unit}".strip()
+            if isinstance(item.value, (int, float))
+            else f"{item.value} {item.unit}".strip()
+        )
+        where = f" [{item.entity_ref}]" if item.entity_ref else ""
+        lines.append(
+            f"- {item.label}{where}: {value} on file from "
+            f'"{item.doc_title}" — the current term ends '
+            f"{item.expires_on}."
+        )
+    lines.append("")
+    lines.append(
+        "This request was prepared from the underwriting file; "
+        "reply through the usual broker channel."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def open_renewal_ask(
+    store,
+    brief: Brief,
+    items: list[FollowThroughItem],
+    *,
+    actor: str,
+    reason: str,
+) -> FollowThroughRecord:
+    """Open the follow-through record for a sent renewal chase.
+
+    The chase's own act is the record's decision fields: the
+    sender, the composed reason (the expiring facts it names),
+    and the moment. Unlike a decision-born ask, no gate
+    decision is required — the record attaches to ``brief``
+    (the account's latest, the file the renewal belongs to)
+    whatever its decision state, and the decided brief, if
+    that is what it attaches to, is read and never written."""
+    now = _now()
+    record = FollowThroughRecord(
+        record_id=f"ask-{uuid.uuid4().hex[:12]}",
+        account_id=brief.account_id,
+        brief_id=brief.brief_id,
+        origin="renewal_chase",
+        decision_actor=actor,
+        decision_reason=reason,
+        decided_at=now,
+        created_at=now,
+        items=items,
+        status="open",
+        updated_at=now,
+    )
+    record.draft_text = compose_renewal_draft(brief, items, actor=actor)
+    return store.save(record)
+
+
 def open_follow_through(
     store, brief: Brief, items: list[FollowThroughItem]
 ) -> FollowThroughRecord:
@@ -363,6 +518,12 @@ def evaluate_after_ingestion(
       the requested document's title (a corrected resend under
       a new document id), choosing the earliest such episode
       in file order.
+    - a *renewal* item is received when a successor fact's
+      window covers the chased fact's end — the timeline's
+      successor rule, applied to the fact the item names. The
+      expiring fact's own presence never satisfies it (it is
+      already current; that is why it is being chased), and a
+      successor that starts after a gap does not either.
 
     No new episodes (an idempotent re-ingestion) means no
     evaluation — a duplicate arrival marks nothing."""
@@ -374,6 +535,7 @@ def evaluate_after_ingestion(
     current = assembly.assemble_brief(
         port, account, as_of or date.today()
     )
+    graph_facts: list[Fact] | None = None  # fetched on first renewal item
     episodes = sorted(
         port.get_episodes(account.account_id),
         key=lambda e: (e.received_at, e.episode_id),
@@ -397,6 +559,28 @@ def evaluate_after_ingestion(
                 if fact is not None:
                     item.status = "received"
                     item.received_episode_id = fact.episode_id
+                    item.received_at = at
+                    touched = True
+            elif item.kind == "renewal":
+                # The successor rule, applied to the chased
+                # fact itself: the renewal counts when its
+                # window covers the chased fact's end.
+                from .timeline import covering_successor
+
+                if graph_facts is None:
+                    graph_facts = port.get_facts(account.account_id)
+                chased = next(
+                    (f for f in graph_facts if f.fact_id == item.fact_id),
+                    None,
+                )
+                successor = (
+                    covering_successor(chased, graph_facts)
+                    if chased is not None
+                    else None
+                )
+                if successor is not None:
+                    item.status = "received"
+                    item.received_episode_id = successor.episode_id
                     item.received_at = at
                     touched = True
             else:  # document item: a clean resend under a new id
@@ -427,12 +611,25 @@ def render_follow_through_text(record: FollowThroughRecord) -> str:
     and the draft — the CLI's view, from the same record the API
     serves as JSON."""
     received = sum(1 for i in record.items if i.status == "received")
+    if record.origin == "renewal_chase":
+        headline = f"RENEWAL CHASE {record.record_id}"
+        provenance = (
+            f"Account {record.account_id} · attached to brief "
+            f"{record.brief_id} · chase sent by {record.decision_actor} "
+            f"on {record.decided_at.date().isoformat()}: "
+            f"{record.decision_reason}"
+        )
+    else:
+        headline = f"FOLLOW-THROUGH {record.record_id}"
+        provenance = (
+            f"Account {record.account_id} · from brief {record.brief_id} · "
+            f"request_info by {record.decision_actor} on "
+            f"{record.decided_at.date().isoformat()}: {record.decision_reason}"
+        )
     lines = [
-        f"FOLLOW-THROUGH {record.record_id} — {record.status} "
+        f"{headline} — {record.status} "
         f"({received} of {len(record.items)} items received)",
-        f"Account {record.account_id} · from brief {record.brief_id} · "
-        f"request_info by {record.decision_actor} on "
-        f"{record.decided_at.date().isoformat()}: {record.decision_reason}",
+        provenance,
         "",
         "ITEMS",
     ]
@@ -443,7 +640,10 @@ def render_follow_through_text(record: FollowThroughRecord) -> str:
             if item.status == "received"
             else ""
         )
-        lines.append(f"  [{mark}] {item.label} ({item.kind}){via}")
+        detail = ""
+        if item.kind == "renewal" and item.expires_on is not None:
+            detail = f" — term ends {item.expires_on}"
+        lines.append(f"  [{mark}] {item.label} ({item.kind}){detail}{via}")
     if record.completed_at is not None:
         lines.append("")
         lines.append(

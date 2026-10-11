@@ -57,6 +57,15 @@ that projection:
   if the desk ever wants thin support to rank, that is a
   separate, deliberate change to the weights — argued in
   the open, not smuggled in as a side effect of a count.
+- **Open chases ride along the same way** (round 9). Each
+  row also counts the account's open renewal chases
+  (:mod:`chases`) as of the brief's date — chases awaiting
+  a send, asked and unanswered, or lapsed unasked — read
+  from the chase projection, whose verdicts are the watch's
+  and the follow-through store's. Same discipline, stated
+  again because it is the same temptation: displayed, never
+  weighted, never scored, never ranked by. A satisfied
+  chase is closed business and does not count.
 
 Like the timeline and the watch, the brief is a **pure
 projection**: it reads the port and the record stores and
@@ -70,6 +79,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from . import chases as chases_mod
 from . import followthrough as follow_mod
 from . import staleness as staleness_mod
 from . import support as support_mod
@@ -200,6 +210,20 @@ def build_portfolio_brief(
                 thin_facts=support_mod.thin_count(
                     port.get_facts(account_id), as_of
                 ),
+                # Display only — never scored, under exactly
+                # the thin-facts discipline: the account's
+                # open renewal chases at the brief's date,
+                # from the chase projection's own states.
+                open_chases=chases_mod.open_chase_count(
+                    chases_mod.chases_for_account(
+                        port=port,
+                        account=account,
+                        brief_store=brief_store,
+                        follow_store=follow_store,
+                        as_of=as_of,
+                        horizon_days=horizon_days,
+                    )
+                ),
             )
         )
     rows.sort(key=lambda r: (-r.score, r.account_name, r.account_id))
@@ -225,8 +249,9 @@ def render_portfolio_text(brief: PortfolioBrief) -> str:
         f"as of {brief.as_of} (expiry horizon {brief.horizon_days} days)",
         f"Ranking weights: {weights}. Score is the weighted sum "
         "of the signal counts; ties break by account name. "
-        "Thin-fact counts (support grading) are shown for "
-        "information only — unweighted, never scored.",
+        "Thin-fact counts (support grading) and open-chase "
+        "counts (renewal chases) are shown for information "
+        "only — unweighted, never scored.",
         "",
     ]
     if not brief.rows:
@@ -241,6 +266,8 @@ def render_portfolio_text(brief: PortfolioBrief) -> str:
         detail = "; ".join(counts) if counts else "nothing outstanding"
         if row.thin_facts:
             detail += f"; {row.thin_facts} thin fact(s)"
+        if row.open_chases:
+            detail += f"; {row.open_chases} open chase(s)"
         lines.append(
             f"{rank:>3}. {row.account_id}  {row.account_name} — "
             f"score {row.score}: {detail}"

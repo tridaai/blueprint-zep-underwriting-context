@@ -12,6 +12,8 @@ serves — for operators and for smoke runs:
     zep-context-agent portfolio [--as-of 2026-06-01] [--horizon-days 45]
     zep-context-agent timeline ACC-001 [--as-of 2026-06-01]
     zep-context-agent watch [--as-of 2026-06-01] [--horizon-days 45]
+    zep-context-agent chases [--account ACC-001] [--as-of 2026-06-01] [--horizon-days 45]
+    zep-context-agent chase-send ACC-001 inspection_grade --actor "…"
     zep-context-agent review [--account ACC-001]
     zep-context-agent confirm <candidate_id> --account ACC-001 --actor "…"
     zep-context-agent reject <candidate_id> --account ACC-001 --actor "…" --reason "…"
@@ -28,6 +30,7 @@ import argparse
 import sys
 from datetime import date
 
+from .chases import render_chases_text
 from .config import load_dotenv
 from .errors import ContextError
 from .followthrough import render_follow_through_text
@@ -98,6 +101,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_watch.add_argument("--as-of", type=date.fromisoformat, default=None)
     p_watch.add_argument("--horizon-days", type=int, default=None)
+
+    p_chases = sub.add_parser(
+        "chases",
+        help="The renewal chases: expiring facts joined to the "
+        "ask machinery — open, asked, satisfied, lapsed unsent",
+    )
+    p_chases.add_argument("--account", default=None)
+    p_chases.add_argument("--as-of", type=date.fromisoformat, default=None)
+    p_chases.add_argument("--horizon-days", type=int, default=None)
+
+    p_chase_send = sub.add_parser(
+        "chase-send",
+        help="Send one renewal chase: open its follow-through "
+        "ask on the account's latest brief",
+    )
+    p_chase_send.add_argument("account_id")
+    p_chase_send.add_argument("predicate")
+    p_chase_send.add_argument("--actor", required=True)
 
     p_review = sub.add_parser(
         "review",
@@ -194,6 +215,11 @@ def main(argv: list[str] | None = None) -> int:
                             f"  EXPIRING {x.predicate} "
                             f"(in {x.days_remaining}d)"
                         )
+                for c in entry.chases:
+                    if c.state == "SATISFIED":
+                        line += f"  CHASE {c.predicate} SATISFIED"
+                    else:
+                        line += f"  CHASE {c.predicate} {c.state}"
                 if entry.thin_fact_count:
                     line += f"  THIN {entry.thin_fact_count} fact(s)"
                 print(line)
@@ -228,6 +254,31 @@ def main(argv: list[str] | None = None) -> int:
                 print("No follow-through records.")
             for record in records:
                 print(render_follow_through_text(record))
+        elif args.command == "chases":
+            from datetime import date as _date
+
+            from .config import expiry_horizon_days
+
+            as_of = args.as_of or _date.today()
+            horizon = (
+                args.horizon_days
+                if args.horizon_days is not None
+                else expiry_horizon_days()
+            )
+            rows = service.renewal_chases(
+                args.account, as_of=as_of, horizon_days=horizon
+            )
+            print(render_chases_text(rows, as_of, horizon), end="")
+        elif args.command == "chase-send":
+            record, row = service.send_chase(
+                args.account_id, args.predicate, actor=args.actor
+            )
+            print(
+                f"CHASE SENT — {row.predicate} on {row.account_id}: "
+                f"ask {record.record_id} opened on brief "
+                f"{record.brief_id} in {args.actor}'s name."
+            )
+            print(render_follow_through_text(record))
         elif args.command == "review":
             print(
                 render_review_queue_text(

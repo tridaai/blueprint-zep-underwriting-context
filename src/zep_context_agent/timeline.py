@@ -107,6 +107,16 @@ def _covering_successor(fact: Fact, facts: list[Fact]) -> Fact | None:
     return None
 
 
+def covering_successor(fact: Fact, facts: list[Fact]) -> Fact | None:
+    """The public reading of the successor rule above: the
+    fact whose window covers ``fact``'s end, if one is on file.
+    The follow-through recognition (a renewal item is answered
+    when a covering successor lands) and the renewal chase read
+    this same relation — the rule lives here, in one place,
+    and no other module re-derives it."""
+    return _covering_successor(fact, facts)
+
+
 def _later_fact(fact: Fact, facts: list[Fact]) -> Fact | None:
     """The earliest later fact for the same key, if any — a
     successor on file that does *not* cover the end (it starts
@@ -391,15 +401,27 @@ def build_account_timeline(
             )
 
     for record in follow_store.list(account_id):
+        if record.origin == "renewal_chase":
+            opened_label = (
+                f"Renewal chase sent — {len(record.items)} "
+                f"expiring fact(s) asked of the broker"
+            )
+            opened_detail = (
+                f"chase by {record.decision_actor}, attached to "
+                f"brief {record.brief_id}"
+            )
+        else:
+            opened_label = (
+                f"Request-info ask opened — {len(record.items)} "
+                f"item(s) asked of the broker"
+            )
+            opened_detail = f"ask from brief {record.brief_id}"
         events.append(
             TimelineEvent(
                 kind="follow_opened",
                 date=record.created_at.date(),
-                label=(
-                    f"Request-info ask opened — {len(record.items)} "
-                    f"item(s) asked of the broker"
-                ),
-                detail=f"ask from brief {record.brief_id}",
+                label=opened_label,
+                detail=opened_detail,
                 brief_id=record.brief_id,
                 record_id=record.record_id,
             )

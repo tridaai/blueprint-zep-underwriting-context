@@ -370,7 +370,10 @@ def build_desk_queue(
     row's thin-fact count (see :mod:`support`): how many of
     the account's current facts grade THIN. Also display
     only — thin support is something to know at the gate,
-    not a re-ordering of the day."""
+    not a re-ordering of the day. With the follow-through
+    store as well, the row carries the account's renewal
+    chases (see :mod:`chases`) under the same discipline:
+    annotation, never ordering."""
     today = today or date.today()
     stale_rows: list[tuple[datetime, DeskQueueEntry]] = []
     awaiting_rows: list[tuple[datetime, DeskQueueEntry]] = []
@@ -404,6 +407,11 @@ def build_desk_queue(
                 expiry_horizon_days as _default_horizon,
             )
 
+            horizon = (
+                expiry_horizon_days
+                if expiry_horizon_days is not None
+                else _default_horizon()
+            )
             entry.thin_fact_count = support_mod.thin_count(
                 port.get_facts(account_id), today
             )
@@ -412,13 +420,28 @@ def build_desk_queue(
                     port=port,
                     account=account,
                     as_of=today,
-                    horizon_days=(
-                        expiry_horizon_days
-                        if expiry_horizon_days is not None
-                        else _default_horizon()
-                    ),
+                    horizon_days=horizon,
                 )
             )
+            if follow_store is not None:
+                # The account's renewal chases (see chases.py):
+                # the watch's expiring facts, joined to the ask
+                # machinery — which can be chased, which are
+                # already asked, which lapsed unasked. An
+                # annotation like the watch itself; the order
+                # below never reads it.
+                from . import chases as chases_mod
+
+                entry.chases = chases_mod.desk_chases(
+                    chases_mod.chases_for_account(
+                        port=port,
+                        account=account,
+                        brief_store=brief_store,
+                        follow_store=follow_store,
+                        as_of=today,
+                        horizon_days=horizon,
+                    )
+                )
         if follow_store is not None:
             # The ask riding on the account's latest DECIDED brief
             # (see followthrough.py). Attached whatever the row's

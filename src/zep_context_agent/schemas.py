@@ -218,47 +218,77 @@ class StalenessRecord(BaseModel):
 
 
 class FollowThroughItem(BaseModel):
-    """One thing a request-info decision asked the broker for.
+    """One thing an ask asked the broker for.
 
-    ``kind`` is ``predicate`` (a fact the brief could not resolve)
-    or ``document`` (a quarantined document to resend cleanly).
-    State is ``open`` until the answer is recognised in a fresh
-    assembly, then ``received`` — with the episode that satisfied
-    it named, so the desk can see exactly what closed the item.
+    ``kind`` is ``predicate`` (a fact the brief could not resolve),
+    ``document`` (a quarantined document to resend cleanly), or
+    ``renewal`` (a current fact whose window is closing — the
+    renewal chase's item, see :mod:`chases`). State is ``open``
+    until the answer is recognised, then ``received`` — with the
+    episode that satisfied it named, so the desk can see exactly
+    what closed the item.
+
+    Recognition differs by kind, honestly: a predicate item is
+    answered when the predicate becomes a current fact; a renewal
+    item is answered only when a successor fact's window *covers*
+    the chased fact's end (the timeline's successor rule) — the
+    expiring fact is already current, so its mere presence can
+    never satisfy its own chase. Renewal items therefore carry
+    the chased fact's identity: ``fact_id``, its value and unit,
+    its entity, the document it stands on, and ``expires_on``
+    (its ``valid_to``).
     """
 
-    kind: Literal["predicate", "document"]
-    predicate: str = ""  # predicate items
+    kind: Literal["predicate", "document", "renewal"]
+    predicate: str = ""  # predicate + renewal items
     label: str  # the underwriter-terms name the draft asked by
-    doc_id: str = ""  # document items: the quarantined document
+    doc_id: str = ""  # document items: the quarantined document;
+    # renewal items: the document the chased fact stands on
     doc_title: str = ""
     episode_id: str = ""  # document items: the quarantined episode
     reason: str = ""  # document items: why it was quarantined
+    entity_ref: str = ""  # renewal items: the chased fact's entity
+    fact_id: str = ""  # renewal items: the chased fact in the graph
+    value: FactValue | None = None  # renewal items: the chased value
+    unit: str = ""  # renewal items: the chased fact's unit
+    expires_on: date | None = None  # renewal items: the window's end
     status: Literal["open", "received"] = "open"
     received_episode_id: str = ""
     received_at: datetime | None = None
 
 
 class FollowThroughRecord(BaseModel):
-    """A request-info decision, followed through.
+    """An ask to the broker, followed through.
 
-    Opened when an underwriter records ``request_info`` on a
-    brief: the ask — missing predicates, quarantined documents to
-    resend — composed in code from that brief, with a deterministic
-    draft the underwriter can copy. The draft is never sent; there
-    is no send path. Items flip to ``received`` as broker replies
-    are ingested and recognised against a fresh assembly's facts.
+    Two origins, one record. A ``request_info`` decision opens a
+    record (``origin == "decision"``): the ask — missing
+    predicates, quarantined documents to resend — composed in
+    code from the decided brief. A renewal chase opens the other
+    (``origin == "renewal_chase"``, see :mod:`chases`): the ask
+    for the renewal document that would refresh an expiring
+    fact, composed in code from the fact and its expiry, and
+    attached to the account's latest brief — the file it belongs
+    to — whatever that brief's decision state. Records stored
+    before origins existed parse as ``"decision"``.
+
+    Either way the draft is deterministic text the underwriter
+    can copy; the system itself sends nothing. Items flip to
+    ``received`` as broker replies are ingested and recognised.
     The record closes (``complete``) when every item is received.
 
-    The decided brief is never edited; this record lives apart
-    from it, like the staleness record. The two watches are
-    independent: an ask can complete while a staleness flag is
-    open, and a flag can resolve while an ask is still open.
+    The brief is never edited; this record lives apart from it,
+    like the staleness record. The watches are independent: an
+    ask can complete while a staleness flag is open, and a flag
+    can resolve while an ask is still open. For a chase record,
+    ``decision_actor`` / ``decision_reason`` / ``decided_at``
+    carry the chase's own act: who sent the chase, the composed
+    reason (the expiring facts it names), and when.
     """
 
     record_id: str
     account_id: str
-    brief_id: str  # the DECIDED (request_info) brief the ask came from
+    brief_id: str  # the brief the ask came from / attaches to
+    origin: Literal["decision", "renewal_chase"] = "decision"
     decision_actor: str
     decision_reason: str
     decided_at: datetime
@@ -353,6 +383,94 @@ class ExpiryEntry(BaseModel):
     doc_title: str = ""
 
 
+class ChaseFact(BaseModel):
+    """One expiring (or lapsed, or satisfied) fact on a renewal
+    chase row: the watch's own row for the fact, verbatim, plus —
+    on a SATISFIED row — the document whose arrival refreshed it.
+    ``watch_state`` is the expiry watch's verdict for the fact at
+    the chase's as-of date."""
+
+    predicate: str
+    entity_ref: str = ""
+    value: FactValue
+    unit: str = ""
+    valid_from: date
+    valid_to: date
+    watch_state: Literal["expiring", "lapsed"]
+    days_remaining: int
+    successor_exists: bool = False
+    episode_id: str = ""
+    doc_id: str = ""
+    doc_title: str = ""
+    satisfied_doc_id: str = ""  # SATISFIED rows: the renewal's paper
+    satisfied_doc_title: str = ""
+
+
+class RenewalChase(BaseModel):
+    """One renewal chase: an account, a predicate, and the state
+    of the desk's attempt to get the expiring fact renewed (see
+    :mod:`chases`). A pure projection over the expiry watch, the
+    follow-through store, and the brief store — computed, never
+    stored; the only durable artifact a chase ever creates is
+    the follow-through ask its send opens.
+
+    States, in the order the projection resolves them:
+
+    - ``ASKED`` — a chase ask for this predicate is open: the
+      broker owes the renewal.
+    - ``LAPSED_UNSENT`` — a flagged fact has lapsed while no
+      chase was ever sent. The failure is named, not aged out;
+      the chase can still be sent, late.
+    - ``WAITING_ON_BRIEF`` — facts are expiring but the account
+      has no brief: an ask attaches to a brief, so there is
+      nothing to send against yet.
+    - ``OPEN`` — facts are expiring, a brief exists to attach
+      to, and no ask covers the predicate: the chase can be sent.
+    - ``SATISFIED`` — a chase ask completed and nothing under
+      the predicate is flagged any more: the renewal landed,
+      and the row names the document that carried it.
+
+    A predicate an open request-info ask already covers gets no
+    row at all — the dedupe: the broker is already being asked
+    about that predicate, and two asks never run for one line
+    of the file.
+    """
+
+    account_id: str
+    account_name: str
+    predicate: str
+    label: str  # the predicate's underwriter-terms name
+    state: Literal[
+        "OPEN", "ASKED", "SATISFIED", "LAPSED_UNSENT", "WAITING_ON_BRIEF"
+    ]
+    facts: list[ChaseFact] = Field(default_factory=list)
+    # The brief a send would attach to (the account's latest),
+    # or the brief the chase ask rides on. ``None`` only in
+    # WAITING_ON_BRIEF — there is no brief.
+    brief_id: str | None = None
+    brief_status: str | None = None
+    ask_record_id: str | None = None  # the chase's ask, once sent
+    ask_status: str | None = None
+    # The soonest fact's days remaining (negative when lapsed);
+    # the row's clock. ``None`` on a SATISFIED row: the chase is
+    # closed, and a closed chase has no clock.
+    days_remaining: int | None = None
+
+
+class DeskChase(BaseModel):
+    """A renewal chase, as the desk queue shows it: the
+    predicate, its state, and its clock. An annotation on the
+    account's row — the queue's order never reads it."""
+
+    predicate: str
+    label: str
+    state: Literal[
+        "OPEN", "ASKED", "SATISFIED", "LAPSED_UNSENT", "WAITING_ON_BRIEF"
+    ]
+    days_remaining: int | None = None
+    ask_record_id: str | None = None
+
+
 class DeskDecision(BaseModel):
     """The decision summary a desk-queue row shows."""
 
@@ -440,6 +558,13 @@ class DeskQueueEntry(BaseModel):
     # without the port: uncomputed, not zero. A display count
     # only; the queue's order never reads it.
     thin_fact_count: int | None = None
+    # The account's renewal chases (see :mod:`chases`), computed
+    # under the same condition as the watch (port access) plus
+    # the follow-through store: expiring facts the desk can
+    # chase, chases already asked, renewals that landed, and
+    # lapses nobody chased. An annotation only — the queue's
+    # order never reads it.
+    chases: list[DeskChase] = Field(default_factory=list)
 
 
 class ReviewGroup(BaseModel):
@@ -500,6 +625,14 @@ class PortfolioRow(BaseModel):
     # no weight, enters no score, and cannot move the ranking
     # — the published weights are a separate, deliberate act.
     thin_facts: int = 0
+    # How many renewal chases stand open on the account (see
+    # :mod:`chases`) as of the brief's date: expiring facts
+    # awaiting a chase, chases asked and unanswered, lapses
+    # nobody chased. Displayed on the row under exactly the
+    # thin-facts discipline — NOT a signal, no weight, no
+    # score, no ranking movement. A satisfied chase is closed
+    # business and does not count.
+    open_chases: int = 0
 
 
 class PortfolioBrief(BaseModel):
@@ -528,6 +661,14 @@ class DecisionRequest(BaseModel):
     action: DecisionAction
     actor: str = Field(min_length=1)
     reason: str = Field(min_length=1)
+
+
+class ChaseSendRequest(BaseModel):
+    """Sending one renewal chase: a named human act, like every
+    gate decision here — the send opens a follow-through ask in
+    the sender's name, and the record carries it."""
+
+    actor: str = Field(min_length=1)
 
 
 class ReviewRequest(BaseModel):

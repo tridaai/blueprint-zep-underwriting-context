@@ -200,6 +200,17 @@ async function showQueue() {
       }).join("");
       html += `<div class="small" style="margin-top:6px">Running out under this account (a fact a renewal covers never appears here):</div><ul>${items}</ul>`;
     }
+    if (e.chases && e.chases.length) {
+      const CHASE_TEXT = {
+        OPEN: c => `chase open — sendable from the account view (expires in ${c.days_remaining}d)`,
+        ASKED: c => `chase asked — the broker owes the renewal (ask ${c.ask_record_id})`,
+        SATISFIED: () => `chase satisfied — the renewal landed`,
+        LAPSED_UNSENT: c => `lapsed ${-c.days_remaining}d ago, never chased — the failure is named, and the chase can still be sent late`,
+        WAITING_ON_BRIEF: () => `expiring, but the account has no brief — a chase ask attaches to a brief`,
+      };
+      const items = e.chases.map(c => `<li><strong>${c.predicate}</strong> — ${c.state}: ${CHASE_TEXT[c.state] ? CHASE_TEXT[c.state](c) : ""}</li>`).join("");
+      html += `<div class="small" style="margin-top:6px">Renewal chases:</div><ul>${items}</ul>`;
+    }
     if (e.thin_fact_count) {
       html += `<div class="small" style="margin-top:6px">Support: <strong>${e.thin_fact_count} current fact(s) grade thin</strong> — a single letter, or a value that replaced an earlier one. Open the brief's soft spots before leaning on them.</div>`;
     }
@@ -241,11 +252,11 @@ async function showPortfolio() {
   const el = $("#detail");
   const weights = SIGNAL_COLUMNS.map(([k, label]) => `${label.toLowerCase()} ${brief.weights[k]}`).join(" · ");
   let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The morning portfolio brief</h2>
-    <p class="small">The whole book as of ${brief.as_of}, expiry horizon ${brief.horizon_days} days. Every count is the per-account machinery's own verdict — the staleness watch, the follow-through store, the expiry watch, the review gate — counted, never re-derived. The score is the weighted sum, with the weights printed here because a ranking the desk cannot audit is a ranking it should not trust: ${weights}. An account with no decided brief is unexamined, not clean — it counts. An account with a decision and nothing outstanding scores zero and closes the list: a clean book is a fact worth printing. The thin-facts column counts current facts grading thin on support; it is shown for information and is deliberately not in the weights — it cannot move the ranking. Click a row to open the account.</p>`;
+    <p class="small">The whole book as of ${brief.as_of}, expiry horizon ${brief.horizon_days} days. Every count is the per-account machinery's own verdict — the staleness watch, the follow-through store, the expiry watch, the review gate — counted, never re-derived. The score is the weighted sum, with the weights printed here because a ranking the desk cannot audit is a ranking it should not trust: ${weights}. An account with no decided brief is unexamined, not clean — it counts. An account with a decision and nothing outstanding scores zero and closes the list: a clean book is a fact worth printing. The thin-facts column counts current facts grading thin on support; it is shown for information and is deliberately not in the weights — it cannot move the ranking. The open-chases column counts renewal chases standing open on the account, under exactly the same discipline — displayed, unweighted, never scored. Click a row to open the account.</p>`;
   if (!brief.rows.length) {
     html += `<div class="empty">No accounts.</div>`;
   } else {
-    html += `<table><tr><th>#</th><th>Account</th><th>Score</th>${SIGNAL_COLUMNS.map(([, label]) => `<th>${label}</th>`).join("")}<th>Thin facts</th><th></th></tr>`;
+    html += `<table><tr><th>#</th><th>Account</th><th>Score</th>${SIGNAL_COLUMNS.map(([, label]) => `<th>${label}</th>`).join("")}<th>Thin facts</th><th>Open chases</th><th></th></tr>`;
     brief.rows.forEach((r, i) => {
       const cells = SIGNAL_COLUMNS.map(([k]) => `<td>${r.signals[k] ? `<strong>${r.signals[k]}</strong>` : `<span class="small">—</span>`}</td>`).join("");
       html += `<tr class="queue-row" data-account="${r.account_id}">
@@ -254,6 +265,7 @@ async function showPortfolio() {
         <td><strong>${r.score}</strong></td>
         ${cells}
         <td>${r.thin_facts ? `<strong>${r.thin_facts}</strong>` : `<span class="small">—</span>`}</td>
+        <td>${r.open_chases ? `<strong>${r.open_chases}</strong>` : `<span class="small">—</span>`}</td>
         <td class="small">${r.score === 0 ? "nothing outstanding" : ""}</td>
       </tr>`;
     });
@@ -293,6 +305,7 @@ async function selectAccount(accountId) {
     <div id="briefs-list"></div>
     <div id="brief-view"></div>
     <div id="watch-view"></div>
+    <div id="chases-view"></div>
     <div id="timeline-view"></div>`;
   el.querySelector("h2").textContent = a.display_name;
   $("#btn-back-queue").onclick = () => showQueue();
@@ -322,6 +335,7 @@ async function selectAccount(accountId) {
     } catch (e) { s.textContent = "Error: " + e.message; }
   };
   loadWatchCard(accountId);
+  loadChasesCard(accountId);
   loadTimeline(accountId);
   const list = $("#briefs-list");
   if (briefs.length) {
@@ -354,6 +368,61 @@ async function loadWatchCard(accountId) {
     const rows = (await api("/expiry-watch")).filter(r => r.account_id === accountId);
     if (!rows.length) { el.innerHTML = ""; return; }
     el.innerHTML = `<div class="card ${rows.some(r => r.state === "lapsed") ? "bad" : "warn"}" style="margin-top:22px"><strong>Expiry watch</strong> — facts this account relies on that are running out:<ul>${rows.map(expiryLine).join("")}</ul><div class="small">A fact whose renewal is already on file — its successor's window covering its end — never appears here.</div></div>`;
+  } catch (e) { el.innerHTML = ""; }
+}
+
+function chaseLine(r) {
+  const facts = r.facts.map(f => {
+    const when = f.watch_state === "lapsed" ? `lapsed ${-f.days_remaining}d ago` : `expires in ${f.days_remaining}d`;
+    const base = `<li><strong>${f.predicate}</strong>${f.entity_ref ? ` [${f.entity_ref}]` : ""} — ${fmtVal(f.value, f.unit)}, term ends ${f.valid_to} (${when})`;
+    return f.satisfied_doc_title ? `${base} — renewed by “${f.satisfied_doc_title}”</li>` : `${base}</li>`;
+  }).join("");
+  return `<div style="margin-top:8px"><span class="pill ${r.state === "LAPSED_UNSENT" ? "stale" : r.state === "SATISFIED" ? "ok" : "warn"}">${r.state}</span> <strong>${r.label}</strong><ul>${facts}</ul></div>`;
+}
+
+async function loadChasesCard(accountId) {
+  const el = $("#chases-view");
+  if (!el) return;
+  try {
+    const rows = await api(`/chases?account_id=${accountId}`);
+    if (!rows.length) { el.innerHTML = ""; return; }
+    let html = `<div class="card" style="margin-top:22px"><strong>Renewal chases</strong> — the watch, joined to the ask: sending a chase opens a follow-through ask on the account's latest brief, drafted in code from the expiring fact. The draft is prepared for the underwriter to copy; the system sends nothing itself.`;
+    for (const r of rows) {
+      html += chaseLine(r);
+      if (r.state === "ASKED") {
+        html += `<div class="small">Ask ${r.ask_record_id} is open — the broker owes the renewal. It completes when a renewal document whose window covers the chased term lands.</div>`;
+      }
+      if (r.state === "WAITING_ON_BRIEF") {
+        html += `<div class="small">No brief on this account — a chase ask attaches to a brief, so there is nothing to send against yet. Assemble a brief first.</div>`;
+      }
+      if (r.state === "OPEN" || r.state === "LAPSED_UNSENT") {
+        html += `<div class="row" style="margin-top:6px">
+          <input type="text" class="chase-actor" placeholder="Your name — the send is a named act" size="34">
+          <button class="action chase-send" data-predicate="${r.predicate}">Send chase</button>
+          <span class="small chase-status"></span>
+        </div>`;
+      }
+    }
+    html += `</div>`;
+    el.innerHTML = html;
+    el.querySelectorAll(".chase-send").forEach(btn => {
+      btn.onclick = async () => {
+        const row = btn.closest(".row");
+        const actor = row.querySelector(".chase-actor").value.trim();
+        const status = row.querySelector(".chase-status");
+        if (!actor) { status.textContent = "Name the sender first — the ask carries the name."; return; }
+        status.textContent = "sending…";
+        try {
+          const out = await api(`/accounts/${accountId}/chases/${btn.dataset.predicate}/send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ actor }),
+          });
+          status.textContent = `Chase sent — ask ${out.ask.record_id} is open.`;
+          await loadChasesCard(accountId);
+        } catch (e) { status.textContent = "Refused: " + e.message; }
+      };
+    });
   } catch (e) { el.innerHTML = ""; }
 }
 
@@ -608,7 +677,9 @@ function showBrief(brief) {
   if (ftEl) {
     api(`/briefs/${brief.brief_id}/follow-through`).then(rec => {
       const items = rec.items.map(i => `<li>${i.status === "received" ? "✓" : "○"} <strong></strong> <span class="small">(${i.kind}${i.status === "received" ? " — received via " + i.received_episode_id : " — open"})</span></li>`).join("");
-      ftEl.innerHTML = `<div class="card" style="margin-top:14px"><strong>Request-info follow-through</strong> — ${rec.status}, ${rec.items.filter(i => i.status === "received").length} of ${rec.items.length} items received.<ul>${items}</ul><div class="small" style="margin-bottom:6px">The ask, as drafted from this brief — prepared for the underwriter to copy; it is never sent by the system.</div><pre class="ctx" id="ft-draft"></pre></div>`;
+      const heading = rec.origin === "renewal_chase" ? "Renewal chase" : "Request-info follow-through";
+      const drafted = rec.origin === "renewal_chase" ? "The chase, as drafted from the expiring facts on this file" : "The ask, as drafted from this brief";
+      ftEl.innerHTML = `<div class="card" style="margin-top:14px"><strong>${heading}</strong> — ${rec.status}, ${rec.items.filter(i => i.status === "received").length} of ${rec.items.length} items received.<ul>${items}</ul><div class="small" style="margin-bottom:6px">${drafted} — prepared for the underwriter to copy; it is never sent by the system.</div><pre class="ctx" id="ft-draft"></pre></div>`;
       ftEl.querySelectorAll("li strong").forEach((node, idx) => { node.textContent = rec.items[idx].label; });
       const draft = ftEl.querySelector("#ft-draft");
       if (draft) draft.textContent = rec.draft_text;

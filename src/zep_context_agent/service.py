@@ -342,6 +342,84 @@ class BriefService:
             ),
         )
 
+    # -- renewal chases ---------------------------------------------------------
+
+    def renewal_chases(
+        self,
+        account_id: str | None = None,
+        as_of: date | None = None,
+        horizon_days: int | None = None,
+    ) -> list:
+        """The renewal chases (see chases.build_chases): every
+        account's chase rows, or one account's — expiring facts
+        the desk can chase, chases already asked, renewals that
+        landed, lapses nobody chased. A pure projection over
+        the expiry watch, the follow-through store, and the
+        brief store; the horizon defaults to the configured
+        EXPIRY_HORIZON_DAYS, like the watch."""
+        from . import chases as chases_mod
+        from .config import expiry_horizon_days
+
+        as_of = as_of or date.today()
+        horizon = (
+            horizon_days if horizon_days is not None else expiry_horizon_days()
+        )
+        if account_id is not None:
+            account = self.get_account(account_id)
+            return chases_mod.chases_for_account(
+                port=self.port,
+                account=account,
+                brief_store=self.store,
+                follow_store=self.follow_store,
+                as_of=as_of,
+                horizon_days=horizon,
+            )
+        return chases_mod.build_chases(
+            port=self.port,
+            accounts=self.accounts,
+            brief_store=self.store,
+            follow_store=self.follow_store,
+            as_of=as_of,
+            horizon_days=horizon,
+        )
+
+    def send_chase(
+        self,
+        account_id: str,
+        predicate: str,
+        *,
+        actor: str,
+        as_of: date | None = None,
+        horizon_days: int | None = None,
+    ):
+        """Send one renewal chase: open its follow-through ask
+        on the account's latest brief (see
+        chases.send_renewal_chase) and return the record with
+        the chase row as it now reads. The send is idempotent
+        in the only way that matters — a second send is refused
+        by name, because the broker has been asked once. The
+        draft on the record is prepared for the underwriter to
+        copy; as with every ask here, the system sends nothing
+        itself."""
+        from . import chases as chases_mod
+        from .config import expiry_horizon_days
+
+        account = self.get_account(account_id)
+        return chases_mod.send_renewal_chase(
+            port=self.port,
+            account=account,
+            brief_store=self.store,
+            follow_store=self.follow_store,
+            predicate=predicate,
+            actor=actor,
+            as_of=as_of or date.today(),
+            horizon_days=(
+                horizon_days
+                if horizon_days is not None
+                else expiry_horizon_days()
+            ),
+        )
+
     # -- the morning portfolio brief -------------------------------------------
 
     def portfolio_brief(

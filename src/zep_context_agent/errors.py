@@ -57,6 +57,20 @@ class FollowThroughError(ContextError):
     followthrough.py."""
 
 
+class ChaseError(ContextError):
+    """A renewal chase that cannot be sent.
+
+    Sending a chase opens a follow-through ask for an expiring
+    fact (see chases.py). The send is refused — with the cause
+    named — when there is nothing expiring under the predicate,
+    when an open request-info ask already covers the predicate
+    (the broker is already being asked; a chase would ask
+    twice), when a chase ask for it is already open, when the
+    renewal has already landed, or when the account has no
+    brief for the ask to attach to. A refused send opens no
+    record and changes no state."""
+
+
 class ReviewError(ContextError):
     """A review-gate action that cannot be taken.
 

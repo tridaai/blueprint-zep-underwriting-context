@@ -42,6 +42,7 @@ from .db import database_url, ensure_migrated, ping
 from .errors import (
     AccountNotFound,
     BriefNotFound,
+    ChaseError,
     ContextError,
     ContextNotConfigured,
     DecisionError,
@@ -51,7 +52,12 @@ from .errors import (
 )
 from .observability import configure_json_logging, new_request_id, request_id_ctx
 from .render import render_brief_text
-from .schemas import AssembleRequest, DecisionRequest, ReviewRequest
+from .schemas import (
+    AssembleRequest,
+    ChaseSendRequest,
+    DecisionRequest,
+    ReviewRequest,
+)
 from .service import BriefService
 
 logger = logging.getLogger("zep_context_agent.api")
@@ -130,6 +136,10 @@ def create_app(service: BriefService | None = None) -> FastAPI:
     def follow_through_handler(
         request: Request, exc: FollowThroughError
     ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(ChaseError)
+    def chase_handler(request: Request, exc: ChaseError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(ReviewError)
@@ -279,6 +289,49 @@ def create_app(service: BriefService | None = None) -> FastAPI:
             r.model_dump(mode="json")
             for r in svc.list_follow_through(account_id)
         ]
+
+    # -- renewal chases ---------------------------------------------------------
+
+    @app.get("/chases")
+    def list_chases(
+        account_id: str | None = None,
+        as_of: date | None = None,
+        horizon_days: int | None = None,
+    ) -> list[dict]:
+        """The renewal chases: expiring facts joined to the ask
+        machinery, per account and predicate — OPEN (sendable),
+        ASKED (the broker owes the renewal), SATISFIED (the
+        renewal landed; the row names its document),
+        LAPSED_UNSENT (a fact lapsed unchased), WAITING_ON_BRIEF
+        (no brief to attach an ask to). A pure projection; a
+        predicate an open request-info ask covers has no row —
+        the broker is never asked twice."""
+        return [
+            r.model_dump(mode="json")
+            for r in svc.renewal_chases(
+                account_id, as_of=as_of, horizon_days=horizon_days
+            )
+        ]
+
+    @app.post("/accounts/{account_id}/chases/{predicate}/send")
+    def send_chase(
+        account_id: str, predicate: str, request: ChaseSendRequest
+    ) -> dict:
+        """Send one renewal chase: open its follow-through ask
+        on the account's latest brief, drafted in code from the
+        expiring fact and its expiry. Refusals are 409s naming
+        their cause — already asked by a decision, already
+        chased, already satisfied, nothing expiring, or no
+        brief to attach to. The draft rides the returned ask
+        record; like every ask here, the system sends nothing
+        itself."""
+        record, row = svc.send_chase(
+            account_id, predicate, actor=request.actor
+        )
+        return {
+            "ask": record.model_dump(mode="json"),
+            "chase": row.model_dump(mode="json"),
+        }
 
     @app.get("/briefs/{brief_id}/follow-through")
     def brief_follow_through(brief_id: str) -> dict:
