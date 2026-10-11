@@ -98,6 +98,7 @@
     <div class="sub">Account briefs assembled from a context graph: current facts only, every fact cited, superseded shown as superseded — then the underwriter decides.</div>
   </div>
   <div class="spacer"></div>
+  <button class="action secondary" id="btn-portfolio">Portfolio</button>
   <button class="action secondary" id="btn-watch">Expiry watch</button>
   <button class="action secondary" id="btn-review">Review queue</button>
   <button class="action secondary" id="btn-queue">Desk queue</button>
@@ -214,6 +215,49 @@ async function showQueue() {
   el.innerHTML = html;
   const names = {};
   for (const e of queue) names[e.account_id] = e.account_name;
+  el.querySelectorAll(".queue-row").forEach(row => {
+    row.querySelector("strong").textContent = names[row.dataset.account] || row.dataset.account;
+    row.onclick = () => selectAccount(row.dataset.account);
+  });
+}
+
+const SIGNAL_COLUMNS = [
+  ["stale_decisions", "Stale decisions"],
+  ["lapsed_facts", "Lapsed"],
+  ["open_asks", "Open asks"],
+  ["expiring_facts", "Expiring"],
+  ["pending_candidates", "Candidates"],
+  ["no_decided_brief", "No decision"],
+];
+
+async function showPortfolio() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const brief = await api("/portfolio");
+  const el = $("#detail");
+  const weights = SIGNAL_COLUMNS.map(([k, label]) => `${label.toLowerCase()} ${brief.weights[k]}`).join(" · ");
+  let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The morning portfolio brief</h2>
+    <p class="small">The whole book as of ${brief.as_of}, expiry horizon ${brief.horizon_days} days. Every count is the per-account machinery's own verdict — the staleness watch, the follow-through store, the expiry watch, the review gate — counted, never re-derived. The score is the weighted sum, with the weights printed here because a ranking the desk cannot audit is a ranking it should not trust: ${weights}. An account with no decided brief is unexamined, not clean — it counts. An account with a decision and nothing outstanding scores zero and closes the list: a clean book is a fact worth printing. Click a row to open the account.</p>`;
+  if (!brief.rows.length) {
+    html += `<div class="empty">No accounts.</div>`;
+  } else {
+    html += `<table><tr><th>#</th><th>Account</th><th>Score</th>${SIGNAL_COLUMNS.map(([, label]) => `<th>${label}</th>`).join("")}<th></th></tr>`;
+    brief.rows.forEach((r, i) => {
+      const cells = SIGNAL_COLUMNS.map(([k]) => `<td>${r.signals[k] ? `<strong>${r.signals[k]}</strong>` : `<span class="small">—</span>`}</td>`).join("");
+      html += `<tr class="queue-row" data-account="${r.account_id}">
+        <td>${i + 1}</td>
+        <td><strong></strong><br><span class="small">${r.account_id}</span></td>
+        <td><strong>${r.score}</strong></td>
+        ${cells}
+        <td class="small">${r.score === 0 ? "nothing outstanding" : ""}</td>
+      </tr>`;
+    });
+    html += `</table>`;
+  }
+  el.innerHTML = html;
+  const names = {};
+  for (const r of brief.rows) names[r.account_id] = r.account_name;
   el.querySelectorAll(".queue-row").forEach(row => {
     row.querySelector("strong").textContent = names[row.dataset.account] || row.dataset.account;
     row.onclick = () => selectAccount(row.dataset.account);
@@ -585,6 +629,7 @@ async function init() {
     $("#db-pill").textContent = "database: " + r.database;
   } catch (e) { /* readiness is informational in the console */ }
   $("#btn-queue").onclick = () => showQueue();
+  $("#btn-portfolio").onclick = () => showPortfolio();
   $("#btn-watch").onclick = () => showWatch();
   $("#btn-review").onclick = () => showReview();
   await showQueue();

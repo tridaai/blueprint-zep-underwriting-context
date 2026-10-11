@@ -9,6 +9,7 @@ serves — for operators and for smoke runs:
     zep-context-agent decide <brief_id> proceed --actor "…" --reason "…"
     zep-context-agent show <brief_id>
     zep-context-agent queue
+    zep-context-agent portfolio [--as-of 2026-06-01] [--horizon-days 45]
     zep-context-agent timeline ACC-001 [--as-of 2026-06-01]
     zep-context-agent watch [--as-of 2026-06-01] [--horizon-days 45]
     zep-context-agent review [--account ACC-001]
@@ -30,6 +31,7 @@ from datetime import date
 from .config import load_dotenv
 from .errors import ContextError
 from .followthrough import render_follow_through_text
+from .portfolio import render_portfolio_text
 from .render import render_brief_text
 from .review import render_review_queue_text
 from .service import BriefService
@@ -67,6 +69,14 @@ def main(argv: list[str] | None = None) -> int:
         "queue",
         help="The desk queue: stale decisions first, then awaiting briefs",
     )
+
+    p_portfolio = sub.add_parser(
+        "portfolio",
+        help="The morning portfolio brief: the whole book, "
+        "signals counted and ranked",
+    )
+    p_portfolio.add_argument("--as-of", type=date.fromisoformat, default=None)
+    p_portfolio.add_argument("--horizon-days", type=int, default=None)
 
     p_asks = sub.add_parser(
         "asks",
@@ -185,6 +195,11 @@ def main(argv: list[str] | None = None) -> int:
                             f"(in {x.days_remaining}d)"
                         )
                 print(line)
+        elif args.command == "portfolio":
+            brief = service.portfolio_brief(
+                as_of=args.as_of, horizon_days=args.horizon_days
+            )
+            print(render_portfolio_text(brief), end="")
         elif args.command == "timeline":
             timeline = service.account_timeline(
                 args.account_id, as_of=args.as_of

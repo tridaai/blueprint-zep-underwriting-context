@@ -249,6 +249,21 @@ def create_app(service: BriefService | None = None) -> FastAPI:
         A read model — it decides nothing."""
         return [e.model_dump(mode="json") for e in svc.desk_queue()]
 
+    @app.get("/portfolio")
+    def portfolio(
+        as_of: date | None = None, horizon_days: int | None = None
+    ) -> dict:
+        """The morning portfolio brief: every account's signals
+        — stale decisions, lapsed and expiring facts, open
+        asks, candidates awaiting review, never-decided — counted
+        in code and ranked by the weights printed on the brief
+        itself. A pure projection: it mutates nothing and does
+        not re-order the desk queue, which keeps its own order.
+        ``as_of`` pins the temporal verdicts (defaults to
+        today); the horizon defaults to EXPIRY_HORIZON_DAYS."""
+        brief = svc.portfolio_brief(as_of=as_of, horizon_days=horizon_days)
+        return brief.model_dump(mode="json")
+
     @app.get("/staleness")
     def list_staleness(account_id: str | None = None) -> list[dict]:
         return [

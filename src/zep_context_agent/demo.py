@@ -17,6 +17,13 @@ The demo always runs the labelled offline adapter with in-memory
 stores: it is a smoke run of the assembly rules, not a Zep
 performance claim. For the real profile, serve the API with
 CONTEXT_BACKEND=zep (see README).
+
+It closes with the morning portfolio brief over the demo's
+world — the whole book of forty accounts, of which only this
+one has been ingested and decided: the ranking shows what
+that means. The decided account carries no signal; the other
+thirty-nine stand at "no decided brief", the unexamined —
+which is exactly the distinction the brief exists to draw.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from .datasets import DATASET_PRESENT
 from .offline_graph import OfflineContextGraph
 from .ontology import predicate_label
+from .portfolio import render_portfolio_text
 from .render import render_brief_text
 from .service import BriefService
 from .store import InMemoryBriefStore
@@ -78,6 +86,17 @@ def main() -> int:
         "The decision has joined the account's history as a new "
         "episode; the next brief for this account cites it as a "
         "current fact."
+    )
+    # The morning portfolio brief over the demo's world: this
+    # account decided and quiet; the rest of the book never
+    # opened. The brief counts signals from the same machinery
+    # the per-account surfaces use — it invents none of them.
+    print()
+    print(
+        render_portfolio_text(
+            service.portfolio_brief(as_of=DATASET_PRESENT)
+        ),
+        end="",
     )
     return 0
 
