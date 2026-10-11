@@ -138,6 +138,88 @@ early sketch had one, the shipped pipeline does not — appetite is
 the carrier's policy engine's job, and bolting a toy version onto
 the brief would blur exactly the line this blueprint draws.
 
+## The review gate — correspondence waits for a human
+
+The injection screen answers "is this document trying to
+manipulate the reader?" A quieter question sits behind it: even
+honest broker correspondence is a free-text channel, and its
+assertions are the least reliable paper in the file. Round 6
+holds them to a review gate (`review.py`, with the machinery in
+the adapters and the citation index).
+
+**Provenance tiers, in code.** Every document kind maps to one
+tier in `ontology.origin_tier_for_kind`, and every fact carries
+its tier as `origin`:
+
+| Tier | Kinds | Entry |
+|---|---|---|
+| `system_record` | `decision_memo` | On arrival — the system does not review its own records |
+| `filed_document` | `submission`, `claims_extract`, `endorsement`, `inspection` | On arrival — structured extracts of filed paper |
+| `correspondence` | `correspondence` | **Only by confirmation** — assertions land as candidates |
+
+An unlisted kind defaults to filed paper: the gated tier is
+chosen by the ontology, never fallen into.
+
+**Candidates.** A correspondence assertion becomes a
+`CandidateFact`: the extracted predicate, value, and validity
+window, the asserting document and its received date, and the
+document's free text as the source excerpt. Candidates live in
+the cited layer — the adapters hold them beside the facts, and
+the citation index persists them (migration 0006, the
+`candidate_facts` table) so the queue survives a restart like
+everything else the desk relies on. But no read path serves
+them: assembly, the timeline, and the expiry watch read facts
+only, so a pending candidate is indistinguishable from absent —
+the temporal machinery never sees it. The episode itself is on
+the record (arrival is a fact of the file, as with a quarantined
+document); only its assertions wait. The screen stays upstream:
+a quarantined document's assertions become neither facts nor
+candidates, and ingestion idempotency (episodes keyed by
+document) means a re-ingested letter creates no second
+candidate.
+
+**Decisions.** The service's `review_candidate` is the only
+door, mirroring the gate's discipline: a named actor is
+required; a rejection additionally requires a reason, and the
+rejected candidate stays on the record with both — the audit of
+what the desk refused, never a silent deletion. A decided
+candidate cannot be decided again.
+
+**Confirmation and `recorded_at`.** A confirmed candidate
+becomes a fact keeping its id and its document's validity
+window — the window is the document's truth. Its `recorded_at`,
+though, is the **confirmation date**, not the document's
+received date: the graph did not record the fact until the desk
+attested it, and the document's own date is not hidden (it
+stays on the episode and the candidate record). The choice
+matters exactly where `temporal.resolve` breaks ties — equal
+windows compete on `recorded_at`. With the document's date, a
+letter confirmed late would silently lose to filed paper that
+arrived while it waited, and the underwriter's confirmation
+would change nothing: a trap. With the confirmation date, the
+attestation competes as the latest recording — the desk vouched
+for the value knowing what else was on file, and the fact that
+wins is the one a human most recently stood behind. The fact
+carries `confirmed_by` / `confirmed_at` so a brief reader can
+see it entered by review, and the cache decorator bumps the
+account's facts-version on confirmation, exactly as it does on
+ingestion.
+
+**Confirmation is an arrival; arrival is not.** A pending
+candidate's ingestion runs neither watch — no brief could see
+it, so nothing it carries can be material yet. Confirmation
+re-runs the staleness evaluation and the follow-through
+recognition with the candidate's episode as the trigger: a
+confirmed fact can stale a decided brief, and a confirmed
+broker reply can answer an open request-info ask — at
+confirmation time, pinned by tests and by the eval scenario.
+
+**On the Zep profile** the gate governs the cited layer exactly
+as it does offline: the episode payload goes to Zep at
+ingestion (Zep's server-side graph is Zep's, as with
+quarantine), but no brief cites a correspondence assertion
+until it is confirmed in the index the briefs read.
+
 ## Brief diffs — what changed since the last brief
 
 Briefs are the record, so a revisit can be answered from the
@@ -372,6 +454,7 @@ what is about to stop being true:
 | Citation index | PostgreSQL (`citation_index`, migration 0003) — the episode payloads behind every citation | In-process adapter memory (test-double mode) |
 | Staleness records | PostgreSQL (`staleness_records`, migration 0004) — flags on decided briefs, stored apart from the briefs themselves | In-memory store (test double) |
 | Follow-through records | PostgreSQL (`follow_through_records`, migration 0005) — request-info asks with items, draft, and per-item state, stored apart from the decided briefs | In-memory store (test double) |
+| Review candidates | PostgreSQL (`candidate_facts`, migration 0006) — correspondence assertions awaiting review, beside the citation index that persists them | Adapter memory with the rest of the cited layer |
 | Graph checkpoints | PostgreSQL via the LangGraph Postgres checkpointer | MemorySaver; `CHECKPOINTS=off` → service-state gate |
 | Source documents | S3-compatible object storage (SeaweedFS in compose), key `accounts/<id>/documents/<doc_id>.json` | Not archived (inline only) |
 | **Cache + ingestion locks** | **Redis** (below) | **Disabled — stated, not substituted** |
@@ -465,10 +548,11 @@ src/zep_context_agent/
   assembly.py      resolve → cite → flag → brief     narrate.py  verified-or-template summary
   graph.py         LangGraph: ingest → assemble → verify → gate (interrupt)
   decisions.py     the gate decision + decision-memo write-back
-  citations.py     the citation index store (Postgres + in-memory double)
+  citations.py     the citation index store (Postgres + in-memory double) + candidate records
   diffing.py       brief diffs: what changed since the previous brief, in code
   staleness.py     the staleness watch + records store + the desk queue
   followthrough.py request-info asks: composition, drafts, recognition, records store
+  review.py        the ingestion review gate: the queue read model + text rendering
   timeline.py      the account timeline + the expiry watch (pure read models)
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
