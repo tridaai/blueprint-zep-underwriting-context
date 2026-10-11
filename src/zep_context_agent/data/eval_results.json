@@ -1,0 +1,372 @@
+{
+  "backend": "offline",
+  "generated_at": "2026-10-11T16:23:51.815966+00:00",
+  "cases": [
+    {
+      "case_id": "T01",
+      "kind": "brief",
+      "account_id": "ACC-001",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T02",
+      "kind": "temporal",
+      "account_id": "ACC-001",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T03",
+      "kind": "brief",
+      "account_id": "ACC-002",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T04",
+      "kind": "temporal",
+      "account_id": "ACC-003",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T05",
+      "kind": "temporal",
+      "account_id": "ACC-004",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T06",
+      "kind": "temporal",
+      "account_id": "ACC-004",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T07",
+      "kind": "temporal",
+      "account_id": "ACC-005",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T08",
+      "kind": "brief",
+      "account_id": "ACC-006",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T09",
+      "kind": "leakage",
+      "account_id": "ACC-001",
+      "passed": true,
+      "failures": []
+    },
+    {
+      "case_id": "T10",
+      "kind": "leakage",
+      "account_id": "ACC-002",
+      "passed": true,
+      "failures": []
+    }
+  ],
+  "brief_correctness": 1.0,
+  "temporal_correctness": 1.0,
+  "leakage_violations_total": 0,
+  "citations_complete_all": true,
+  "mean_precision": 1.0,
+  "mean_recall": 1.0,
+  "sweep": [
+    {
+      "account_id": "ACC-001",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-002",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-003",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-004",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-005",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-006",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-007",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-008",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-009",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-010",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-011",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-012",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-013",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-014",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-015",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-016",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-017",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-018",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-019",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-020",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-021",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-022",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-023",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-024",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-025",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-026",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-027",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-028",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-029",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-030",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-031",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-032",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-033",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-034",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-035",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-036",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-037",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-038",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-039",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    {
+      "account_id": "ACC-040",
+      "violations": [],
+      "citations_complete": true,
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  ],
+  "gates": {
+    "brief_correctness": true,
+    "temporal_correctness": true,
+    "leakage_cases": true,
+    "leakage_sweep_zero": true,
+    "citation_completeness": true
+  },
+  "passed": true
+}

@@ -115,6 +115,17 @@ class BriefService:
         if self.cache is None:
             yield
             return
+        if not self.cache.ping():
+            # Coordination backend configured but down: proceed
+            # unlocked and say so in the log — readiness already
+            # reports the outage; a dead accelerator must not take
+            # ingestion down with it.
+            logger.warning(
+                "cache unreachable: ingesting %s without the coordination lock",
+                account_id,
+            )
+            yield
+            return
         key = cache_mod.lock_key(account_id)
         token = self.cache.try_lock(key, cache_mod.LOCK_TTL_SECONDS)
         if token is None:
