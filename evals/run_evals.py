@@ -21,6 +21,16 @@ the deployment shape — and gates on:
   fact set against the gold set (the temporal rule applied to the
   raw port facts, independently of assembly). Reported per account
   and as means.
+- **brief diff scenario** — the planted temporal trap on ACC-001,
+  staged: a brief while the policy limit stands at 5,000,000, the
+  mid-term endorsement lands, and the next brief must show
+  2,500,000 current with a diff whose policy-limit entry is
+  exactly that one supersession — plus the gate decision recorded
+  in between appearing in the diff. Gate: every check true.
+- **citation persistence** — the cited layer is written to the
+  citation index; a brand-new adapter over the same index (the
+  simulated restart) must read it back and produce a brief whose
+  citations are identical to the pre-restart brief's. Gate: exact.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -44,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from zep_context_agent import guardrails  # noqa: E402
+from zep_context_agent.citations import InMemoryCitationIndex  # noqa: E402
 from zep_context_agent.datasets import DATASET_PRESENT, load_accounts  # noqa: E402
 from zep_context_agent.offline_graph import OfflineContextGraph  # noqa: E402
 from zep_context_agent.service import BriefService  # noqa: E402
@@ -159,12 +170,17 @@ def run_offline() -> dict:
     mean_precision = sum(r["precision"] for r in sweep) / len(sweep)
     mean_recall = sum(r["recall"] for r in sweep) / len(sweep)
 
+    diff_scenario = run_diff_scenario(accounts)
+    persistence_scenario = run_persistence_scenario(accounts)
+
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
         "temporal_correctness": temporal_rate >= CORRECTNESS_GATE,
         "leakage_cases": leakage_cases_rate == 1.0,
         "leakage_sweep_zero": total_violations == 0,
         "citation_completeness": citations_ok,
+        "brief_diff_scenario": diff_scenario["passed"],
+        "citation_persistence": persistence_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -177,9 +193,140 @@ def run_offline() -> dict:
         "mean_precision": round(mean_precision, 4),
         "mean_recall": round(mean_recall, 4),
         "sweep": sweep,
+        "diff_scenario": diff_scenario,
+        "persistence_scenario": persistence_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
+
+
+def _limit(brief) -> list:
+    return [
+        f.value for f in brief.current_facts if f.predicate == "policy_limit_usd"
+    ]
+
+
+def run_diff_scenario(accounts: dict) -> dict:
+    """The two-brief scenario over the planted temporal trap.
+
+    ACC-001's file arrives in two waves: everything except the
+    mid-term endorsement (DOC-001-END2) and the relocation letter
+    (DOC-001-COR), then those two. Brief 1 stands on the 5,000,000
+    limit; the underwriter decides it; brief 2 must stand on
+    2,500,000 and its diff must carry the limit's supersession
+    exactly — one entry, 5,000,000 -> 2,500,000 — with the
+    decision recorded in between named in the diff. (The same
+    endorsement also moves the deductible, and the letter the
+    location: the diff reports those as their own entries, which
+    is why the gate filters to the limit rather than pretending
+    the endorsement touched nothing else.)
+    """
+    checks: dict[str, bool] = {}
+    full = accounts["ACC-001"]
+    held_back = {"DOC-001-END2", "DOC-001-COR"}
+    phase1 = full.model_copy(
+        update={
+            "documents": [
+                d for d in full.documents if d.doc_id not in held_back
+            ]
+        }
+    )
+    staged = {"ACC-001": phase1}
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=staged,
+    )
+    brief1 = service.assemble("ACC-001", as_of=date(2025, 6, 1))
+    checks["brief1_limit_is_5000000"] = _limit(brief1) == [5000000]
+    checks["brief1_is_first_brief"] = brief1.diff is None
+    service.decide(
+        brief1.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: the file as it stood before the endorsement.",
+    )
+    staged["ACC-001"] = full  # the endorsement + relocation land
+    brief2 = service.assemble("ACC-001", as_of=date.today())
+    checks["brief2_limit_is_2500000"] = _limit(brief2) == [2500000]
+    diff = brief2.diff
+    checks["brief2_has_diff"] = diff is not None
+    if diff is not None:
+        checks["diff_names_brief1"] = diff.previous_brief_id == brief1.brief_id
+        limit_changes = [
+            c for c in diff.superseded if c.predicate == "policy_limit_usd"
+        ]
+        checks["diff_limit_superseded_exactly"] = (
+            len(limit_changes) == 1
+            and limit_changes[0].previous_value == 5000000
+            and limit_changes[0].current_value == 2500000
+        )
+        checks["diff_limit_nowhere_else"] = not any(
+            f.predicate == "policy_limit_usd" for f in diff.added + diff.removed
+        )
+        checks["diff_decision_recorded"] = (
+            len(diff.decisions) == 1
+            and diff.decisions[0].brief_id == brief1.brief_id
+            and diff.decisions[0].action == "proceed"
+        )
+    facts = service.port.get_facts("ACC-001")
+    checks["brief2_leakage_free"] = guardrails.brief_violations(brief2, facts) == []
+    return {"checks": checks, "passed": all(checks.values())}
+
+
+def _citation_rows(brief) -> list:
+    rows = [
+        (f.predicate, f.value, f.entity_ref, f.episode_id, f.doc_id)
+        for f in brief.current_facts
+    ]
+    rows += [
+        (f.predicate, f.value, f.entity_ref, f.episode_id, f.doc_id)
+        for f in brief.superseded_facts
+    ]
+    return sorted(rows)
+
+
+def run_persistence_scenario(accounts: dict) -> dict:
+    """The restart case: cited layer -> citation index -> a new
+    adapter over the same index -> identical citations."""
+    index = InMemoryCitationIndex()
+    first_port = OfflineContextGraph(citation_index=index)
+    first_service = BriefService(
+        port=first_port,
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=accounts,
+    )
+    before = first_service.assemble("ACC-001", as_of=DATASET_PRESENT)
+
+    # The restart: new adapter, new service — same index, no
+    # re-ingestion call before the reads.
+    second_port = OfflineContextGraph(citation_index=index)
+    hydrated = second_port.get_facts("ACC-001")
+    second_service = BriefService(
+        port=second_port,
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=accounts,
+    )
+    after = second_service.assemble("ACC-001", as_of=DATASET_PRESENT)
+    checks = {
+        "hydrated_facts_match": {f.fact_id for f in hydrated}
+        == {f.fact_id for f in first_port.get_facts("ACC-001")},
+        "hydrated_facts_nonempty": len(hydrated) > 0,
+        "citations_identical": _citation_rows(after) == _citation_rows(before),
+        "citations_complete_after_restart": bool(
+            after.verification and after.verification.citations_complete
+        ),
+    }
+    return {"checks": checks, "passed": all(checks.values())}
 
 
 def run_live() -> dict | None:
@@ -251,6 +398,12 @@ def main() -> int:
     print(f"leakage violations:   {payload['leakage_violations_total']} (gate = 0)")
     print(f"citation completeness: {'all briefs' if payload['citations_complete_all'] else 'INCOMPLETE'}")
     print(f"context precision/recall (mean): {payload['mean_precision']:.3f} / {payload['mean_recall']:.3f}")
+    for label, scenario in (
+        ("brief diff scenario", payload["diff_scenario"]),
+        ("citation persistence", payload["persistence_scenario"]),
+    ):
+        failed = [k for k, ok in scenario["checks"].items() if not ok]
+        print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
     if live is not None:
         print(f"live Zep (reported, not gated): {live.get('summary', live.get('skipped', ''))}")
     print("GATE:", "PASS" if payload["passed"] else "FAIL")

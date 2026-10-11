@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-11T16:23:51.815966+00:00",
+  "generated_at": "2026-10-11T17:10:26.819501+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -361,12 +361,37 @@
       "recall": 1.0
     }
   ],
+  "diff_scenario": {
+    "checks": {
+      "brief1_limit_is_5000000": true,
+      "brief1_is_first_brief": true,
+      "brief2_limit_is_2500000": true,
+      "brief2_has_diff": true,
+      "diff_names_brief1": true,
+      "diff_limit_superseded_exactly": true,
+      "diff_limit_nowhere_else": true,
+      "diff_decision_recorded": true,
+      "brief2_leakage_free": true
+    },
+    "passed": true
+  },
+  "persistence_scenario": {
+    "checks": {
+      "hydrated_facts_match": true,
+      "hydrated_facts_nonempty": true,
+      "citations_identical": true,
+      "citations_complete_after_restart": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
     "leakage_cases": true,
     "leakage_sweep_zero": true,
-    "citation_completeness": true
+    "citation_completeness": true,
+    "brief_diff_scenario": true,
+    "citation_persistence": true
   },
   "passed": true
 }
