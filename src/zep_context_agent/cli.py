@@ -24,6 +24,7 @@ from datetime import date
 
 from .config import load_dotenv
 from .errors import ContextError
+from .followthrough import render_follow_through_text
 from .render import render_brief_text
 from .service import BriefService
 
@@ -59,6 +60,12 @@ def main(argv: list[str] | None = None) -> int:
         "queue",
         help="The desk queue: stale decisions first, then awaiting briefs",
     )
+
+    p_asks = sub.add_parser(
+        "asks",
+        help="Request-info follow-through records (drafts + item state)",
+    )
+    p_asks.add_argument("account_id", nargs="?", default=None)
 
     args = parser.parse_args(argv)
     try:
@@ -112,7 +119,21 @@ def main(argv: list[str] | None = None) -> int:
                         f"{s.flagged_at.date()})"
                         + (f": {moved}" if moved else "")
                     )
+                if entry.follow_through is not None:
+                    f = entry.follow_through
+                    line += (
+                        f"  ASK {f.status} ({f.received_count} of "
+                        f"{f.total_count} received)"
+                    )
+                    if entry.ready_for_review:
+                        line += "  READY FOR REVIEW"
                 print(line)
+        elif args.command == "asks":
+            records = service.list_follow_through(args.account_id)
+            if not records:
+                print("No follow-through records.")
+            for record in records:
+                print(render_follow_through_text(record))
     except ContextError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

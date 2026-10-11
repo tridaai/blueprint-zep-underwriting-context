@@ -180,10 +180,15 @@ async function showQueue() {
         <strong></strong>
         <span class="pill ${STATE_PILL[e.state]}">${STATE_LABEL[e.state] || e.state}</span>
         <span class="pill">${e.account_id}</span>
+        ${e.ready_for_review ? `<span class="pill ok">READY FOR REVIEW</span>` : ""}
         ${e.brief_id ? `<span class="small">latest brief ${e.brief_id}${e.brief_as_of ? " · as of " + e.brief_as_of : ""}</span>` : ""}
       </div>`;
     if (e.decision) {
       html += `<div class="small" style="margin-top:6px">Decision: ${e.decision.action} by ${e.decision.actor}${e.decision.decided_on ? " on " + e.decision.decided_on : ""}</div>`;
+    }
+    if (e.follow_through) {
+      const f = e.follow_through;
+      html += `<div class="small" style="margin-top:6px">Request-info ask: <strong>${f.status}</strong> — ${f.received_count} of ${f.total_count} items received${f.status === "complete" ? ". The broker has answered everything; the underwriter's review is next." : " — the broker still owes the rest."}</div>`;
     }
     if (e.staleness) {
       const s = e.staleness;
@@ -239,7 +244,8 @@ async function selectAccount(accountId) {
       const r = await api(`/accounts/${accountId}/ingest`, { method: "POST" });
       s.textContent = `${r.episodes.length} episodes ingested` +
         (r.quarantined.length ? ` · quarantined: ${r.quarantined.join(", ")}` : "") +
-        (r.open_staleness && r.open_staleness.length ? " · a recorded decision is now STALE — see the desk queue" : "");
+        (r.open_staleness && r.open_staleness.length ? " · a recorded decision is now STALE — see the desk queue" : "") +
+        (r.follow_through && r.follow_through.length ? ` · request-info ask open: ${r.follow_through[0].received_count} of ${r.follow_through[0].total_count} items received` : "");
     } catch (e) { s.textContent = "Error: " + e.message; }
   };
   $("#btn-assemble").onclick = async () => {
@@ -339,7 +345,7 @@ function showBrief(brief) {
   }
   html += `<div class="small">Verification: citations ${v.citations_complete ? "complete" : "INCOMPLETE"} · leakage ${v.leakage_free ? "none" : "FOUND"}${(v.violations || []).length ? " · " + v.violations.join("; ") : ""}</div>`;
   if (brief.decision) {
-    html += `<div class="card" style="margin-top:14px"><strong>Gate decision:</strong> ${brief.decision.action} by ${brief.decision.actor} — ${brief.decision.reason}</div>`;
+    html += `<div class="card" style="margin-top:14px"><strong>Gate decision:</strong> ${brief.decision.action} by ${brief.decision.actor} — ${brief.decision.reason}</div><div id="follow-through"></div>`;
   } else if (brief.status === "AWAITING_UNDERWRITER") {
     html += `
     <div class="card" id="gate">
@@ -358,6 +364,16 @@ function showBrief(brief) {
   }
   el.innerHTML = html;
   el.querySelector(".narrative").textContent = brief.narrative;
+  const ftEl = el.querySelector("#follow-through");
+  if (ftEl) {
+    api(`/briefs/${brief.brief_id}/follow-through`).then(rec => {
+      const items = rec.items.map(i => `<li>${i.status === "received" ? "✓" : "○"} <strong></strong> <span class="small">(${i.kind}${i.status === "received" ? " — received via " + i.received_episode_id : " — open"})</span></li>`).join("");
+      ftEl.innerHTML = `<div class="card" style="margin-top:14px"><strong>Request-info follow-through</strong> — ${rec.status}, ${rec.items.filter(i => i.status === "received").length} of ${rec.items.length} items received.<ul>${items}</ul><div class="small" style="margin-bottom:6px">The ask, as drafted from this brief — prepared for the underwriter to copy; it is never sent by the system.</div><pre class="ctx" id="ft-draft"></pre></div>`;
+      ftEl.querySelectorAll("li strong").forEach((node, idx) => { node.textContent = rec.items[idx].label; });
+      const draft = ftEl.querySelector("#ft-draft");
+      if (draft) draft.textContent = rec.draft_text;
+    }).catch(() => { /* no follow-through record for this brief */ });
+  }
   const ctx = el.querySelector("pre.ctx");
   if (ctx) ctx.textContent = brief.context_block;
   const flagsList = el.querySelector("#flags-list");

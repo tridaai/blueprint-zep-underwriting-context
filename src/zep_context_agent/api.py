@@ -44,6 +44,7 @@ from .errors import (
     ContextError,
     ContextNotConfigured,
     DecisionError,
+    FollowThroughError,
     IngestionInProgress,
 )
 from .observability import configure_json_logging, new_request_id, request_id_ctx
@@ -121,6 +122,12 @@ def create_app(service: BriefService | None = None) -> FastAPI:
 
     @app.exception_handler(DecisionError)
     def decision_handler(request: Request, exc: DecisionError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(FollowThroughError)
+    def follow_through_handler(
+        request: Request, exc: FollowThroughError
+    ) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(IngestionInProgress)
@@ -212,6 +219,19 @@ def create_app(service: BriefService | None = None) -> FastAPI:
                 for r in svc.list_staleness(account_id)
                 if r.resolved_by_brief is None
             ],
+            "follow_through": [
+                {
+                    "record_id": r.record_id,
+                    "brief_id": r.brief_id,
+                    "status": r.status,
+                    "received_count": sum(
+                        1 for i in r.items if i.status == "received"
+                    ),
+                    "total_count": len(r.items),
+                }
+                for r in svc.list_follow_through(account_id)
+                if r.status != "complete"
+            ],
         }
 
     # -- the desk queue + staleness --------------------------------------------
@@ -228,6 +248,30 @@ def create_app(service: BriefService | None = None) -> FastAPI:
         return [
             r.model_dump(mode="json") for r in svc.list_staleness(account_id)
         ]
+
+    @app.get("/follow-through")
+    def list_follow_through(account_id: str | None = None) -> list[dict]:
+        """Request-info asks and their per-item state. The draft
+        on each record was prepared for the underwriter to copy —
+        nothing here sends anything."""
+        return [
+            r.model_dump(mode="json")
+            for r in svc.list_follow_through(account_id)
+        ]
+
+    @app.get("/briefs/{brief_id}/follow-through")
+    def brief_follow_through(brief_id: str) -> dict:
+        svc.get_brief(brief_id)  # 404 for an unknown brief
+        record = svc.follow_through_for_brief(brief_id)
+        if record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Brief {brief_id} has no follow-through record "
+                    "(only a request_info decision opens one)."
+                ),
+            )
+        return record.model_dump(mode="json")
 
     # -- briefs + gate ----------------------------------------------------------
 
