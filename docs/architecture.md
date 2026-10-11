@@ -446,6 +446,54 @@ what is about to stop being true:
   it; a lapsing policy does not outrank a stale decision,
   the row simply shows both clocks.
 
+## The morning portfolio brief — the book, ranked
+
+The desk queue orders the work; it does not summarise the
+book. `portfolio.py` is the cross-account projection that
+does: per account, six signal counts, each read from the
+machinery that owns the verdict — `staleness.open_records`
+for stale decisions, `followthrough.open_records` for open
+asks, `timeline.expiry_watch_for_account` for the LAPSED /
+EXPIRING split (the temporal rule's currency, the watch's
+successor discipline, the caller's horizon), the port's
+candidate read for the review gate's pending count, and
+`staleness.latest_decided_brief` for the never-decided flag.
+No signal is re-implemented here; the module is composition,
+plus the one piece of arithmetic the round adds:
+
+- **The score.** `PORTFOLIO_WEIGHTS` — authored data in the
+  module, echoed onto every brief the projection returns:
+  stale decision 100, lapsed fact 40, open ask 30, expiring
+  fact 20, pending candidate 10, no decided brief 5. The
+  order follows the desk queue's own precedence (a decision
+  on superseded facts is the first work of the day; a lapse
+  is exposure already open; an ask is the broker's silence;
+  an expiry is a clock; candidates are the desk's own
+  backlog; never-decided is a standing nudge). Rows carry
+  their counts beside their score, so the ranking is
+  auditable without recomputing it.
+- **The order.** Score descending, ties by account name
+  then id — total and stable. A zero score is reachable
+  only by a decided account with nothing outstanding, so
+  clean accounts close the list in name order, listed
+  rather than dropped: the brief's claim "the book is
+  clean" requires seeing the clean rows.
+- **A lens, not a re-ordering.** The brief does not feed
+  the desk queue and changes no per-account surface: the
+  queue, the watch, and the stores read byte-identical
+  before and after a build, pinned in tests and in the
+  eval pack's portfolio scenario — which also pins the
+  seeded book's ranking (ACC-006 first on its two planted
+  lapsed facts; the undecided rest tied in name order).
+  Like the timeline and the watch, the projection is pure
+  and hermetic: as-of and horizon are the caller's, the
+  surfaces default them at the boundary.
+  Served at `GET /portfolio`, as a view in the console,
+  via the CLI's `portfolio` command, and printed by the
+  demo over its own world — where the one decided account
+  closes the list at zero and the unopened thirty-nine
+  stand at never-decided.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -554,6 +602,7 @@ src/zep_context_agent/
   followthrough.py request-info asks: composition, drafts, recognition, records store
   review.py        the ingestion review gate: the queue read model + text rendering
   timeline.py      the account timeline + the expiry watch (pure read models)
+  portfolio.py     the morning portfolio brief: signals counted, the book ranked
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off

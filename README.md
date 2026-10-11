@@ -175,6 +175,26 @@ ingest → screen → assemble → verify → gate
   desk to ignore it. The watch rides on the desk queue's
   rows, so the account working order and its running-out
   facts are on the same screen.
+- **Rank the book** — underwriters work a book, not an
+  account, so the morning starts with the **portfolio
+  brief**: every account's signals counted in code and
+  ranked in one view. Six signals, each read from the
+  machinery that already owns the verdict — stale decisions
+  from the staleness watch, lapsed and expiring facts from
+  the expiry watch, open asks from the follow-through store,
+  candidates still pending at the review gate, and a flag
+  for the account that has never had a brief decided:
+  unexamined is not clean, and the brief says so. The score
+  is a weighted sum whose **weights are printed on the
+  brief itself** — stale decision 100, lapsed fact 40, open
+  ask 30, expiring fact 20, pending candidate 10, never
+  decided 5 — so the desk can read why an account ranks
+  first and argue with the numbers in the open. Accounts
+  with nothing outstanding are still listed, last, in name
+  order: a clean book is a fact worth printing. The brief
+  is a lens, not a re-ordering — the desk queue keeps its
+  own order, and building the brief changes no per-account
+  surface.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -282,7 +302,16 @@ fact against a decided brief: both must wait as candidates
 fact must serve the next brief cited to the letter (firing the
 staleness flag at confirmation), the rejected value must
 appear in no brief at any stage, and a duplicate re-ingestion
-must create no second candidate. The golden cases assert the
+must create no second candidate. A seventh, the **portfolio
+scenario**, stages one account per signal — plus two clean
+decided accounts whose names and ids disagree in order — and
+requires the morning brief's ranking to equal the arithmetic
+done by hand from the planted signals and the published
+weights, the zero-signal accounts closing the list by name,
+and the build leaving the queue, the watch, and every store
+byte-identical; it then ranks the seeded book itself, where
+ACC-006 must head the list on its two planted lapsed facts
+and the other thirty-nine stand tied at never-decided. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the
