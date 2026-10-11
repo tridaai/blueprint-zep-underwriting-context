@@ -42,3 +42,12 @@ class AccountNotFound(ContextError):
 class DecisionError(ContextError):
     """A gate decision that cannot be recorded (already decided, or
     missing the actor the audit trail requires)."""
+
+
+class IngestionInProgress(ContextError):
+    """Another worker holds this account's ingestion lock.
+
+    Ingestion is coordinated per account when a cache backend is
+    configured (see ``cache.py``): two workers never ingest the same
+    account concurrently, and the second one is told so instead of
+    racing the first."""
