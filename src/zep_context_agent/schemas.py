@@ -428,6 +428,54 @@ class ReviewGroup(BaseModel):
     pending_count: int = 0
 
 
+class PortfolioSignals(BaseModel):
+    """One account's signal counts for the morning portfolio
+    brief (see :mod:`portfolio`). Every count is read from the
+    machinery that owns the verdict — the staleness watch's
+    open records, the follow-through store's open asks, the
+    expiry watch's rows, the review gate's pending candidates —
+    never re-derived here.
+
+    ``no_decided_brief`` is a flag, not a count: 1 when no
+    brief for the account has ever been decided. An unexamined
+    account is not a clean one, and this is the field that
+    says so."""
+
+    stale_decisions: int = 0
+    lapsed_facts: int = 0
+    open_asks: int = 0
+    expiring_facts: int = 0
+    pending_candidates: int = 0
+    no_decided_brief: int = 0
+
+
+class PortfolioRow(BaseModel):
+    """One account's line in the portfolio brief: its signal
+    counts and the score the published weights compute from
+    them. The row carries the counts beside the score so the
+    ranking is auditable at a glance — the desk never has to
+    take the number on faith."""
+
+    account_id: str
+    account_name: str
+    signals: PortfolioSignals
+    score: int
+
+
+class PortfolioBrief(BaseModel):
+    """The morning portfolio brief (see :mod:`portfolio`): the
+    whole book ranked by priority score, as of a stated date,
+    with the ranking weights printed on its face. A pure
+    projection over the port and the record stores — building
+    it mutates nothing, and the per-account surfaces (the
+    desk queue, the expiry watch) are untouched by it."""
+
+    as_of: date
+    horizon_days: int
+    weights: dict[str, int]
+    rows: list[PortfolioRow] = Field(default_factory=list)
+
+
 # -- API request shapes ------------------------------------------------------
 
 

@@ -342,6 +342,32 @@ class BriefService:
             ),
         )
 
+    # -- the morning portfolio brief -------------------------------------------
+
+    def portfolio_brief(
+        self, as_of: date | None = None, horizon_days: int | None = None
+    ):
+        """The morning portfolio brief (see portfolio.build_portfolio_brief):
+        every account's signals counted from the machinery that
+        owns them, ranked by the published weights. A pure
+        projection — it mutates nothing and re-orders nothing;
+        the desk queue keeps its own order. The horizon defaults
+        to the configured EXPIRY_HORIZON_DAYS, like the watch."""
+        from . import portfolio as portfolio_mod
+        from .config import expiry_horizon_days
+
+        return portfolio_mod.build_portfolio_brief(
+            port=self.port,
+            accounts=self.accounts,
+            brief_store=self.store,
+            staleness_store=self.staleness_store,
+            follow_store=self.follow_store,
+            as_of=as_of or date.today(),
+            horizon_days=(
+                horizon_days if horizon_days is not None else expiry_horizon_days()
+            ),
+        )
+
     # -- briefs ---------------------------------------------------------------
 
     def _facts_version(self, account_id: str) -> int | None:
