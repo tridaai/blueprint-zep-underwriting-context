@@ -89,6 +89,24 @@ the deployment shape — and gates on:
   head the ranking on its two planted lapsed facts, and the
   other thirty-nine accounts must stand tied at
   never-decided, in name order. Gate: every check true.
+- **support scenario** — support grading, staged plus seeded.
+  A staged account's revenue stands on one filed document
+  (STANDARD); the brief is decided; a second, independent
+  document arrives agreeing exactly, and the fresh brief
+  grades the revenue STRONG while the decided brief stays
+  byte-identical with its old grade. A second staged account
+  plants the thin shapes: a limit an endorsement reduced
+  (THIN, contested, the displaced value named), a location
+  resting on one confirmed broker letter (THIN), and a
+  deductible a letter and an inspection agree on (STANDARD —
+  the letter's tier caps it). Then the seeded book: ACC-001's
+  whole grade map must equal the map derived by hand from
+  its planted documents (five thin facts; the claims count
+  NOT contested — the quarantined injection is not a fact
+  and cannot contest), ACC-002 and ACC-006 grade clean, and
+  the portfolio and desk queue carry the counts unweighted —
+  scores and order exactly as the portfolio scenario knows
+  them. Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -113,6 +131,7 @@ from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
 from zep_context_agent import guardrails  # noqa: E402
 from zep_context_agent import portfolio as portfolio_mod  # noqa: E402
+from zep_context_agent.render import render_brief_text  # noqa: E402
 from zep_context_agent.citations import InMemoryCitationIndex  # noqa: E402
 from zep_context_agent.datasets import DATASET_PRESENT, load_accounts  # noqa: E402
 from zep_context_agent.offline_graph import OfflineContextGraph  # noqa: E402
@@ -257,6 +276,7 @@ def run_offline() -> dict:
     timeline_scenario = run_timeline_scenario(accounts)
     review_scenario = run_review_scenario(accounts)
     portfolio_scenario = run_portfolio_scenario(accounts)
+    support_scenario = run_support_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -271,6 +291,7 @@ def run_offline() -> dict:
         "timeline_scenario": timeline_scenario["passed"],
         "review_scenario": review_scenario["passed"],
         "portfolio_scenario": portfolio_scenario["passed"],
+        "support_scenario": support_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -290,6 +311,7 @@ def run_offline() -> dict:
         "timeline_scenario": timeline_scenario,
         "review_scenario": review_scenario,
         "portfolio_scenario": portfolio_scenario,
+        "support_scenario": support_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -1613,6 +1635,375 @@ def run_portfolio_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_support_scenario(accounts: dict) -> dict:
+    """Support grading: the brief says how well-backed each
+    fact is, and the counts ride the queue and the portfolio
+    unweighted.
+
+    Part A stages the upgrade. ACC-S1's revenue stands on its
+    submission alone (STANDARD). The brief is decided. A
+    claims extract then lands asserting the same revenue —
+    a second, independent document — and the fresh brief
+    grades the revenue STRONG, while the decided brief's
+    stored payload is byte-identical and still says STANDARD:
+    grades are computed at assembly, and history is not
+    rewritten. The fresh brief then decides in the usual
+    shape — a grade is not a gate.
+
+    Part B stages the thin shapes on ACC-S2: a limit endorsed
+    down mid-term (THIN, contested, naming the displaced
+    2,000,000 and its schedule), a location resting on one
+    confirmed broker letter (THIN), and a deductible a letter
+    and a filed inspection agree on (STANDARD — two documents,
+    the letter's tier the ceiling). Before the letters are
+    confirmed, the location is missing, not thin: a candidate
+    is not a fact and cannot be graded.
+
+    Part C is the seeded book, ingested with the review pass
+    performed. ACC-001's grade map is derived by hand from
+    its planted documents:
+
+        legal_name STANDARD · risk_class STANDARD
+        annual_revenue_usd THIN — the loss run restated it
+        employee_count THIN — restated the same way
+        claims_count_3yr STANDARD — the quarantined letter
+          asserting 0 never became a fact, so nothing contests
+        largest_claim_usd STANDARD · total_incurred STANDARD
+        policy_limit_usd THIN — endorsed down 5,000,000 → 2,500,000
+        deductible_usd THIN — endorsed 25,000 → 50,000
+        primary_location THIN — one confirmed letter, and it
+          displaced the submission's address
+        underwriter_decision STRONG — the system's own record
+
+    ACC-002 and ACC-006 grade clean (no thin facts). The
+    portfolio carries ACC-001's five thin facts beside a
+    ranking identical to the portfolio scenario's, and the
+    desk queue counts five for ACC-001 with the port, None
+    without it.
+    """
+    checks: dict[str, bool] = {}
+    as_of = date(2026, 6, 1)
+
+    def doc(doc_id, account_id, kind, title, received, assertions=(), text=""):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id=account_id,
+            kind=kind,
+            title=title,
+            received_at=received,
+            text=text,
+            assertions=list(assertions),
+        )
+
+    def fact(predicate, value, valid_from, valid_to=None, entity_ref="", unit=""):
+        return FactAssertion(
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            entity_ref=entity_ref,
+        )
+
+    def make_service(registry):
+        return BriefService(
+            port=OfflineContextGraph(),
+            store=InMemoryBriefStore(),
+            object_store=None,
+            checkpointer=MemorySaver(),
+            cache=None,
+            accounts=registry,
+        )
+
+    def confirm_all(service, account_id):
+        for candidate in service.list_candidates(account_id, state="pending"):
+            service.review_candidate(
+                candidate.candidate_id,
+                account_id=account_id,
+                action="confirm",
+                actor="Eval Desk",
+            )
+
+    def grades(brief):
+        return {
+            f.predicate: f.support.grade
+            for f in brief.current_facts
+            if f.support is not None
+        }
+
+    def support_of(brief, predicate):
+        return next(
+            f.support for f in brief.current_facts
+            if f.predicate == predicate
+        )
+
+    # -- Part A: the upgrade ----------------------------------------------
+    s1_submission = doc(
+        "DOC-S1-SUB", "ACC-S1", "submission",
+        "Submission 2026 — Support Upgrade Co", date(2026, 5, 20),
+        assertions=[
+            fact("legal_name", "Support Upgrade Co", date(2026, 1, 1)),
+            fact("risk_class", "light manufacturing", date(2026, 1, 1)),
+            fact("annual_revenue_usd", 8000000, date(2026, 1, 1),
+                 unit="USD"),
+            fact("primary_location", "1 Support Way, Dayton, OH",
+                 date(2026, 1, 1)),
+            fact("policy_limit_usd", 1000000, date(2026, 1, 1),
+                 unit="USD"),
+            fact("claims_count_3yr", 1, date(2026, 1, 1)),
+        ],
+    )
+    staged = {
+        "ACC-S1": Account(
+            account_id="ACC-S1",
+            display_name="Support Upgrade Co",
+            documents=[s1_submission],
+        )
+    }
+    service = make_service(staged)
+    service.ingest("ACC-S1")
+    first = service.assemble("ACC-S1", as_of=as_of)
+    checks["single_document_grades_standard"] = (
+        support_of(first, "annual_revenue_usd").grade == "STANDARD"
+        and support_of(first, "annual_revenue_usd").supporting_documents == 1
+    )
+    decided = service.decide(
+        first.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: the file as it stood.",
+    )
+    snapshot = decided.model_dump_json()
+    staged["ACC-S1"] = Account(
+        account_id="ACC-S1",
+        display_name="Support Upgrade Co",
+        documents=[
+            s1_submission,
+            doc(
+                "DOC-S1-CLM", "ACC-S1", "claims_extract",
+                "Claims extract — loss run to May 2026",
+                date(2026, 5, 28),
+                assertions=[
+                    fact("annual_revenue_usd", 8000000, date(2026, 5, 1),
+                         unit="USD"),
+                ],
+            ),
+        ],
+    )
+    service.ingest("ACC-S1")
+    fresh = service.assemble("ACC-S1", as_of=as_of)
+    upgraded = support_of(fresh, "annual_revenue_usd")
+    checks["second_document_upgrades_to_strong"] = (
+        upgraded.grade == "STRONG" and upgraded.supporting_documents == 2
+    )
+    stored = service.get_brief(decided.brief_id)
+    checks["decided_brief_byte_identical_with_its_old_grade"] = (
+        stored.model_dump_json() == snapshot
+        and support_of(stored, "annual_revenue_usd").grade == "STANDARD"
+    )
+    decided_fresh = service.decide(
+        fresh.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: corroborated now; decided the same way.",
+    )
+    checks["grades_gate_nothing"] = (
+        decided_fresh.decision is not None
+        and decided_fresh.status == "DECIDED"
+    )
+
+    # -- Part B: the thin shapes -------------------------------------------
+    staged_s2 = {
+        "ACC-S2": Account(
+            account_id="ACC-S2",
+            display_name="Support Letter Co",
+            documents=[
+                doc(
+                    "DOC-S2-SUB", "ACC-S2", "submission",
+                    "Submission 2026 — Support Letter Co",
+                    date(2026, 5, 20),
+                    assertions=[
+                        fact("legal_name", "Support Letter Co",
+                             date(2026, 1, 1)),
+                        fact("risk_class", "light manufacturing",
+                             date(2026, 1, 1)),
+                        fact("annual_revenue_usd", 4000000,
+                             date(2026, 1, 1), unit="USD"),
+                        fact("claims_count_3yr", 0, date(2026, 1, 1)),
+                    ],
+                ),
+                doc(
+                    "DOC-S2-END1", "ACC-S2", "endorsement",
+                    "Policy POL-S2 issued — limit 2,000,000",
+                    date(2026, 1, 12),
+                    assertions=[
+                        fact("policy_limit_usd", 2000000,
+                             date(2026, 1, 1), date(2026, 3, 1),
+                             entity_ref="POL-S2", unit="USD"),
+                    ],
+                ),
+                doc(
+                    "DOC-S2-END2", "ACC-S2", "endorsement",
+                    "Mid-term endorsement — limit reduced",
+                    date(2026, 3, 2),
+                    assertions=[
+                        fact("policy_limit_usd", 1500000,
+                             date(2026, 3, 1), entity_ref="POL-S2",
+                             unit="USD"),
+                    ],
+                ),
+                doc(
+                    "DOC-S2-INS", "ACC-S2", "inspection",
+                    "Inspection report — deductible confirmed",
+                    date(2026, 1, 20),
+                    assertions=[
+                        fact("deductible_usd", 10000, date(2026, 1, 15),
+                             unit="USD"),
+                    ],
+                ),
+                doc(
+                    "DOC-S2-COR1", "ACC-S2", "correspondence",
+                    "Broker letter — new premises", date(2026, 2, 10),
+                    text="Confirming the move to 9 Letter Lane.",
+                    assertions=[
+                        fact("primary_location", "9 Letter Lane",
+                             date(2026, 2, 1)),
+                    ],
+                ),
+                doc(
+                    "DOC-S2-COR2", "ACC-S2", "correspondence",
+                    "Broker letter — deductible", date(2026, 2, 12),
+                    text="The deductible is 10,000 as inspected.",
+                    assertions=[
+                        fact("deductible_usd", 10000, date(2026, 2, 1),
+                             unit="USD"),
+                    ],
+                ),
+            ],
+        )
+    }
+    service_s2 = make_service(staged_s2)
+    service_s2.ingest("ACC-S2")
+    early = service_s2.assemble("ACC-S2", as_of=as_of)
+    checks["an_unconfirmed_letter_is_missing_not_thin"] = (
+        "primary_location" in early.missing_predicates
+        and "primary_location" not in grades(early)
+    )
+    confirm_all(service_s2, "ACC-S2")
+    brief_s2 = service_s2.assemble("ACC-S2", as_of=as_of)
+    checks["thin_shapes_grade_as_planted"] = grades(brief_s2) == {
+        "legal_name": "STANDARD",
+        "risk_class": "STANDARD",
+        "annual_revenue_usd": "STANDARD",
+        "claims_count_3yr": "STANDARD",
+        "policy_limit_usd": "THIN",
+        "primary_location": "THIN",
+        "deductible_usd": "STANDARD",
+    }
+    limit_support = support_of(brief_s2, "policy_limit_usd")
+    checks["the_contest_names_the_displaced_value"] = (
+        limit_support.contested is True
+        and limit_support.contested_value == 2000000
+        and limit_support.contested_doc_id == "DOC-S2-END1"
+    )
+    deductible_support = support_of(brief_s2, "deductible_usd")
+    checks["a_corroborated_letter_caps_at_standard"] = (
+        deductible_support.tier == "correspondence"
+        and deductible_support.supporting_documents == 2
+        and deductible_support.grade == "STANDARD"
+    )
+    section = render_brief_text(brief_s2).split("SOFT SPOTS")[1].split(
+        "SUPERSEDED"
+    )[0]
+    checks["soft_spots_list_the_thin_facts_only"] = (
+        "policy_limit_usd" in section
+        and "primary_location" in section
+        and "replaced 2,000,000" in section
+        and "legal_name" not in section
+        and "deductible_usd" not in section
+    )
+
+    # -- Part C: the seeded book --------------------------------------------
+    book = make_service(accounts)
+    for account_id in sorted(accounts):
+        book.ingest(account_id)
+    for account_id in sorted(accounts):
+        confirm_all(book, account_id)
+    brief_001 = book.assemble("ACC-001", as_of=DATASET_PRESENT)
+    checks["acc001_grade_map_is_the_hand_derived_one"] = grades(
+        brief_001
+    ) == {
+        "legal_name": "STANDARD",
+        "risk_class": "STANDARD",
+        "annual_revenue_usd": "THIN",
+        "employee_count": "THIN",
+        "claims_count_3yr": "STANDARD",
+        "largest_claim_usd": "STANDARD",
+        "total_incurred_3yr_usd": "STANDARD",
+        "policy_limit_usd": "THIN",
+        "deductible_usd": "THIN",
+        "primary_location": "THIN",
+        "underwriter_decision": "STRONG",
+    }
+    checks["the_quarantined_letter_contests_nothing"] = (
+        support_of(brief_001, "claims_count_3yr").contested is False
+    )
+    thin_001 = {
+        f.predicate
+        for f in brief_001.current_facts
+        if f.support is not None and f.support.grade == "THIN"
+    }
+    checks["acc001_has_exactly_five_soft_spots"] = thin_001 == {
+        "annual_revenue_usd",
+        "employee_count",
+        "policy_limit_usd",
+        "deductible_usd",
+        "primary_location",
+    }
+    for account_id in ("ACC-002", "ACC-006"):
+        other = book.assemble(account_id, as_of=DATASET_PRESENT)
+        checks[f"{account_id.lower()}_grades_clean"] = all(
+            g == "STANDARD" for g in grades(other).values()
+        )
+    book_portfolio = book.portfolio_brief(
+        as_of=DATASET_PRESENT, horizon_days=45
+    )
+    rows = {r.account_id: r for r in book_portfolio.rows}
+    checks["portfolio_counts_thin_unweighted"] = (
+        rows["ACC-001"].thin_facts == 5
+        and rows["ACC-002"].thin_facts == 0
+        and rows["ACC-006"].thin_facts == 0
+        and book_portfolio.rows[0].account_id == "ACC-006"
+        and book_portfolio.rows[0].score == 85
+        and all(r.score == 5 for r in book_portfolio.rows[1:])
+        and book_portfolio.weights == portfolio_mod.PORTFOLIO_WEIGHTS
+    )
+    queue = build_desk_queue(
+        accounts,
+        book.store,
+        book.staleness_store,
+        follow_store=book.follow_store,
+        today=DATASET_PRESENT,
+        port=book.port,
+    )
+    queue_by_id = {e.account_id: e for e in queue}
+    queue_no_port = build_desk_queue(
+        accounts,
+        book.store,
+        book.staleness_store,
+        follow_store=book.follow_store,
+        today=DATASET_PRESENT,
+    )
+    checks["desk_queue_counts_thin_with_the_port_only"] = (
+        queue_by_id["ACC-001"].thin_fact_count == 5
+        and queue_by_id["ACC-002"].thin_fact_count == 0
+        and all(
+            e.thin_fact_count is None for e in queue_no_port
+        )
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -1690,6 +2081,7 @@ def main() -> int:
         ("timeline + expiry scenario", payload["timeline_scenario"]),
         ("ingestion review scenario", payload["review_scenario"]),
         ("portfolio scenario", payload["portfolio_scenario"]),
+        ("support scenario", payload["support_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
