@@ -161,6 +161,76 @@ class Brief(BaseModel):
     created_at: datetime
 
 
+class StalenessRecord(BaseModel):
+    """A decided brief whose facts moved underneath it.
+
+    The record lives apart from the brief: the decided brief is
+    the audit trail of what the underwriter saw and stays
+    byte-identical; this record says the world changed after the
+    decision, names the episodes that arrived (the triggers), and
+    carries the material slice of the change — the same diff
+    machinery as a brief diff, computed against the account's
+    current fact set (see :mod:`staleness`).
+
+    Resolution is a fresh decision on a new brief, stamped here
+    (``resolved_by_brief``); there is no dismiss path.
+    """
+
+    record_id: str
+    account_id: str
+    brief_id: str  # the DECIDED brief whose facts went stale
+    decision_action: str
+    decision_actor: str
+    decided_at: datetime
+    flagged_at: datetime
+    trigger_episode_ids: list[str] = Field(default_factory=list)
+    changes: BriefDiff  # the material slice; decisions always []
+    resolved_by_brief: str | None = None
+    resolved_at: datetime | None = None
+    resolved_by: str | None = None
+
+
+class DeskDecision(BaseModel):
+    """The decision summary a desk-queue row shows."""
+
+    action: str
+    actor: str
+    decided_on: date | None = None
+
+
+class DeskStaleness(BaseModel):
+    """An open staleness flag, as the desk queue shows it."""
+
+    record_id: str
+    brief_id: str  # the decided brief that went stale
+    flagged_at: datetime
+    age_days: int
+    trigger_episode_ids: list[str] = Field(default_factory=list)
+    changes: BriefDiff
+
+
+class DeskQueueEntry(BaseModel):
+    """One account's row in the underwriter's desk queue — a read
+    model over briefs and staleness records; it decides nothing.
+
+    ``state`` is the desk's work classification: ``decided_stale``
+    (a decision rests on superseded facts — first work of the
+    day), ``awaiting`` (a brief waits at the gate, including one
+    that failed verification and must be re-assembled),
+    ``decided`` (decided, facts unmoved since), ``no_brief``
+    (nothing assembled yet).
+    """
+
+    account_id: str
+    account_name: str
+    state: Literal["decided_stale", "awaiting", "decided", "no_brief"]
+    brief_id: str | None = None  # the account's latest brief
+    brief_status: str | None = None
+    brief_as_of: date | None = None
+    decision: DeskDecision | None = None
+    staleness: DeskStaleness | None = None
+
+
 # -- API request shapes ------------------------------------------------------
 
 

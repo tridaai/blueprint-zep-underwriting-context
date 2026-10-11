@@ -31,6 +31,7 @@ from langgraph.types import Command
 
 from . import cache as cache_mod
 from . import decisions
+from . import staleness as staleness_mod
 from .checkpoints import get_checkpointer
 from .datasets import load_accounts
 from .errors import (
@@ -44,6 +45,7 @@ from .ingestion import ingest_account
 from .object_store import get_object_store
 from .ontology import Account, Episode
 from .schemas import Brief
+from .staleness import default_staleness_store
 from .store import default_store
 from .wiring import build_context_port
 
@@ -56,6 +58,7 @@ class BriefService:
         *,
         port=None,
         store=None,
+        staleness_store="default",
         object_store="default",
         checkpointer="default",
         cache="default",
@@ -74,6 +77,11 @@ class BriefService:
         else:
             self.port = raw_port
         self.store = store if store is not None else default_store()
+        self.staleness_store = (
+            default_staleness_store()
+            if staleness_store == "default"
+            else staleness_store
+        )
         self.object_store = (
             get_object_store() if object_store == "default" else object_store
         )
@@ -86,6 +94,7 @@ class BriefService:
             store=self.store,
             object_store=self.object_store,
             accounts=self.accounts,
+            staleness_store=self.staleness_store,
         )
         self._graph = (
             build_graph(self.runtime, self.checkpointer)
@@ -141,9 +150,35 @@ class BriefService:
     def ingest(self, account_id: str) -> list[Episode]:
         account = self.get_account(account_id)
         with self._ingest_guard(account_id):
-            return ingest_account(
+            before = {
+                e.episode_id for e in self.port.get_episodes(account_id)
+            }
+            episodes = ingest_account(
                 self.port, account, object_store=self.object_store
             )
+            # New material landed: if the account's latest brief is
+            # DECIDED, did the facts move under its decision?
+            staleness_mod.evaluate_after_ingestion(
+                port=self.port,
+                brief_store=self.store,
+                staleness_store=self.staleness_store,
+                account=account,
+                trigger_episode_ids=staleness_mod.new_episode_ids(
+                    before, episodes
+                ),
+            )
+            return episodes
+
+    # -- staleness + the desk queue -------------------------------------------
+
+    def list_staleness(self, account_id: str | None = None):
+        return self.staleness_store.list(account_id)
+
+    def desk_queue(self) -> list:
+        """Every account in desk order (see staleness.build_desk_queue)."""
+        return staleness_mod.build_desk_queue(
+            self.accounts, self.store, self.staleness_store
+        )
 
     # -- briefs ---------------------------------------------------------------
 
@@ -233,12 +268,22 @@ class BriefService:
                 ),
                 config={"configurable": {"thread_id": brief_id}},
             )
-            return self.get_brief(brief_id)
-        brief = decisions.apply_decision(
-            self.port, brief, action=action, actor=actor, reason=reason
+            decided = self.get_brief(brief_id)
+        else:
+            decided = decisions.apply_decision(
+                self.port, brief, action=action, actor=actor, reason=reason
+            )
+            self.store.save(decided)
+        # A fresh decision on current facts is the one resolution
+        # a staleness flag accepts: stamp the account's open
+        # records resolved by this brief.
+        staleness_mod.resolve_open_records(
+            self.staleness_store,
+            account_id=decided.account_id,
+            resolved_by_brief=decided.brief_id,
+            actor=actor,
         )
-        self.store.save(brief)
-        return brief
+        return decided
 
     # -- readiness --------------------------------------------------------------
 

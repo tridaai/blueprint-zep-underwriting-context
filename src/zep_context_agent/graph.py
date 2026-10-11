@@ -33,6 +33,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
 from . import assembly, decisions, diffing, guardrails, ingestion, narrate
+from . import staleness as staleness_mod
 from .ontology import Account
 from .ports import ContextPort
 from .schemas import Brief, VerificationResult
@@ -41,11 +42,15 @@ from .schemas import Brief, VerificationResult
 class Runtime:
     """The collaborators the pipeline steps close over."""
 
-    def __init__(self, *, port: ContextPort, store, object_store, accounts):
+    def __init__(
+        self, *, port: ContextPort, store, object_store, accounts,
+        staleness_store=None,
+    ):
         self.port = port
         self.store = store
         self.object_store = object_store
         self.accounts: dict[str, Account] = accounts
+        self.staleness_store = staleness_store
 
 
 class BriefState(TypedDict, total=False):
@@ -60,9 +65,25 @@ class BriefState(TypedDict, total=False):
 
 
 def step_ingest(runtime: Runtime, account: Account) -> None:
-    ingestion.ingest_account(
+    before = {
+        e.episode_id for e in runtime.port.get_episodes(account.account_id)
+    }
+    episodes = ingestion.ingest_account(
         runtime.port, account, object_store=runtime.object_store
     )
+    if runtime.staleness_store is not None:
+        # New material landed: if the account's latest brief is
+        # DECIDED, did the facts move under its decision? (See
+        # staleness.py — the decided brief is read, never edited.)
+        staleness_mod.evaluate_after_ingestion(
+            port=runtime.port,
+            brief_store=runtime.store,
+            staleness_store=runtime.staleness_store,
+            account=account,
+            trigger_episode_ids=staleness_mod.new_episode_ids(
+                before, episodes
+            ),
+        )
 
 
 def step_assemble(
