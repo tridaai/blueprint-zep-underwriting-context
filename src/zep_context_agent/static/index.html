@@ -98,6 +98,7 @@
     <div class="sub">Account briefs assembled from a context graph: current facts only, every fact cited, superseded shown as superseded — then the underwriter decides.</div>
   </div>
   <div class="spacer"></div>
+  <button class="action secondary" id="btn-watch">Expiry watch</button>
   <button class="action secondary" id="btn-queue">Desk queue</button>
   <span class="pill indigo" id="backend-pill">backend: …</span>
   <span class="pill" id="db-pill">…</span>
@@ -190,6 +191,13 @@ async function showQueue() {
       const f = e.follow_through;
       html += `<div class="small" style="margin-top:6px">Request-info ask: <strong>${f.status}</strong> — ${f.received_count} of ${f.total_count} items received${f.status === "complete" ? ". The broker has answered everything; the underwriter's review is next." : " — the broker still owes the rest."}</div>`;
     }
+    if (e.expiry && e.expiry.length) {
+      const items = e.expiry.map(x => {
+        const when = x.state === "lapsed" ? `lapsed ${-x.days_remaining}d ago` : `expires in ${x.days_remaining}d`;
+        return `<li><strong>${x.predicate}</strong>${x.entity_ref ? ` [${x.entity_ref}]` : ""} — ${fmtVal(x.value, x.unit)}, window ends ${x.valid_to} (${when})${x.successor_exists ? " — a successor is on file, after a gap" : ""}</li>`;
+      }).join("");
+      html += `<div class="small" style="margin-top:6px">Running out under this account (a fact a renewal covers never appears here):</div><ul>${items}</ul>`;
+    }
     if (e.staleness) {
       const s = e.staleness;
       const moved = [
@@ -234,7 +242,9 @@ async function selectAccount(accountId) {
       <span class="small" id="ingest-status"></span>
     </div>
     <div id="briefs-list"></div>
-    <div id="brief-view"></div>`;
+    <div id="brief-view"></div>
+    <div id="watch-view"></div>
+    <div id="timeline-view"></div>`;
   el.querySelector("h2").textContent = a.display_name;
   $("#btn-back-queue").onclick = () => showQueue();
   $("#btn-ingest").onclick = async () => {
@@ -262,6 +272,8 @@ async function selectAccount(accountId) {
       showBrief(brief);
     } catch (e) { s.textContent = "Error: " + e.message; }
   };
+  loadWatchCard(accountId);
+  loadTimeline(accountId);
   const list = $("#briefs-list");
   if (briefs.length) {
     list.innerHTML = "<h2 style='margin-top:22px'>Briefs for this account</h2>";
@@ -279,6 +291,80 @@ async function selectAccount(accountId) {
       list.appendChild(row);
     }
   }
+}
+
+function expiryLine(x) {
+  const when = x.state === "lapsed" ? `lapsed ${-x.days_remaining}d ago` : `expires in ${x.days_remaining}d`;
+  return `<li><strong>${x.predicate}</strong>${x.entity_ref ? ` [${x.entity_ref}]` : ""} — ${fmtVal(x.value, x.unit)}, window ends ${x.valid_to} (${when})${x.successor_exists ? ` — a successor is on file${x.successor_valid_from ? " from " + x.successor_valid_from : ""}, after a gap` : ""}</li>`;
+}
+
+async function loadWatchCard(accountId) {
+  const el = $("#watch-view");
+  if (!el) return;
+  try {
+    const rows = (await api("/expiry-watch")).filter(r => r.account_id === accountId);
+    if (!rows.length) { el.innerHTML = ""; return; }
+    el.innerHTML = `<div class="card ${rows.some(r => r.state === "lapsed") ? "bad" : "warn"}" style="margin-top:22px"><strong>Expiry watch</strong> — facts this account relies on that are running out:<ul>${rows.map(expiryLine).join("")}</ul><div class="small">A fact whose renewal is already on file — its successor's window covering its end — never appears here.</div></div>`;
+  } catch (e) { el.innerHTML = ""; }
+}
+
+async function showWatch() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const rows = await api("/expiry-watch");
+  const el = $("#detail");
+  let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The expiry watch</h2>
+    <p class="small">Relied-on facts whose validity windows are closing, across every account: lapsed first, then soonest to expire. Currency is the temporal rule's own verdict — and a fact a renewal covers is not on this list. Click a row to open the account.</p>`;
+  if (!rows.length) {
+    html += `<div class="empty">Nothing the desk relies on is running out.</div>`;
+  }
+  for (const r of rows) {
+    html += `<div class="card queue-row" data-account="${r.account_id}">
+      <div class="row">
+        <strong></strong>
+        <span class="pill ${r.state === "lapsed" ? "stale" : "warn"}">${r.state === "lapsed" ? "LAPSED" : "EXPIRING"}</span>
+        <span class="pill">${r.account_id}</span>
+        <span class="small">${r.doc_title} (${r.doc_id})</span>
+      </div>
+      <ul>${expiryLine(r)}</ul>
+    </div>`;
+  }
+  el.innerHTML = html;
+  const names = {};
+  for (const r of rows) names[r.account_id] = r.account_name;
+  el.querySelectorAll(".queue-row").forEach(row => {
+    row.querySelector("strong").textContent = names[row.dataset.account] || row.dataset.account;
+    row.onclick = () => selectAccount(row.dataset.account);
+  });
+}
+
+const EVENT_LABEL = {
+  episode: "Document", fact: "Fact", decision: "Decision",
+  staleness_flag: "Staleness", staleness_resolved: "Resolved",
+  follow_opened: "Ask opened", follow_received: "Ask item",
+  follow_completed: "Ask complete",
+};
+
+async function loadTimeline(accountId) {
+  const el = $("#timeline-view");
+  if (!el) return;
+  try {
+    const tl = await api(`/accounts/${accountId}/timeline`);
+    const rows = tl.events.map(e => {
+      const cite = e.doc_id ? `${e.doc_title} (${e.doc_id})` : "";
+      const extra = e.kind === "fact"
+        ? `window ${e.date} → ${e.valid_to || "open"} · ${e.fact_status}`
+        : (e.detail || "");
+      return `<tr><td style="white-space:nowrap">${e.date}</td><td><span class="pill">${EVENT_LABEL[e.kind] || e.kind}</span></td><td class="ev-label"></td><td class="cite">${extra}${cite ? "<br>" + cite : ""}</td></tr>`;
+    }).join("");
+    el.innerHTML = `<h2 style="margin-top:26px">Timeline — one chronology, as of ${tl.as_of}</h2>
+      <p class="small">Every fact on its validity window with its citation; documents, decisions, staleness flags, and the request-info ask interleaved in the same order. A projection of the stored records — computing it changes nothing.</p>
+      <table><tr><th>Date</th><th>Kind</th><th>Event</th><th>Window / source</th></tr>${rows || '<tr><td colspan="4" class="small">Nothing recorded yet — ingest the account.</td></tr>'}</table>`;
+    el.querySelectorAll("td.ev-label").forEach((cell, i) => {
+      if (tl.events[i]) cell.textContent = tl.events[i].label;
+    });
+  } catch (e) { el.innerHTML = ""; }
 }
 
 function factRows(facts, superseded) {
@@ -412,6 +498,7 @@ async function init() {
     $("#db-pill").textContent = "database: " + r.database;
   } catch (e) { /* readiness is informational in the console */ }
   $("#btn-queue").onclick = () => showQueue();
+  $("#btn-watch").onclick = () => showWatch();
   await showQueue();
 }
 init();
