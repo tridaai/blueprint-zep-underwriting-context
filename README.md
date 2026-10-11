@@ -106,6 +106,12 @@ ingest → screen → assemble → verify → gate
   underwriter records *proceed*, *request info*, or *escalate*,
   with actor and reason, and the decision joins the account's
   history as a new episode.
+- **Remember** — briefs are stored, and a re-assembly diffs
+  itself against the previous brief for the account: a *what
+  changed* section computed in code from the two fact sets —
+  facts added, facts superseded (old value → the value that
+  stands now), facts removed (named, never silently gone), and
+  decisions recorded in between. A first brief says so plainly.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -123,7 +129,7 @@ Provider-first: the standard run is your Zep deployment.
 | `ZEP_API_BASE_URL` | Override for a self-hosted / BYOC Zep stack. Default: the hosted API. |
 | `CONTEXT_BACKEND=offline` | The labelled local temporal graph — tests, evals, demos. |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | Optional narrative model, any OpenAI-compatible endpoint (including a self-hosted NVIDIA NIM container or the hosted NIM catalog). No key → deterministic template narrative, labelled as such. |
-| `DATABASE_URL` | PostgreSQL: brief records + LangGraph checkpointer. Unset → in-memory test doubles, and `/readiness` says so. |
+| `DATABASE_URL` | PostgreSQL: brief records, the citation index, + LangGraph checkpointer. Unset → in-memory test doubles, and `/readiness` says so. |
 | `REDIS_URL` | Optional. The brief/retrieval cache + ingestion coordination lock (see below). Unset → caching disabled, and `/readiness` says so. |
 | `S3_ENDPOINT_URL` / `S3_BUCKET` | Source documents in S3-compatible object storage (SeaweedFS in the compose stack). |
 
@@ -161,6 +167,9 @@ adapters implement it:
   payloads the adapter ingested — an audit-grade brief cannot cite
   a paraphrase — and the provider context block is Zep's own thread
   user-context, fetched live and labelled as provider context.
+  The payload index persists in the blueprint's Postgres citation
+  index when a database is configured (both profiles write through
+  it), so a restart re-reads the cited layer instead of losing it.
 - **`offline`** — a local in-memory temporal graph with the same
   semantics: episodes, facts with validity windows, edges, account
   scoping, lexical search. It does not do Zep's learned extraction
@@ -178,8 +187,13 @@ The golden pack runs offline and gates on: **brief correctness**
 superseded section), **citation completeness** (every current fact
 cited), and **leakage — zero tolerance**: any fact from another
 account, including the near-identically named trap account, fails
-the pack outright. Live runs against a real Zep workspace are
-opt-in and reported, not gated.
+the pack outright. Two scenario gates ride along: the **brief
+diff** over the planted mid-term endorsement (the limit's change
+must appear in the diff as exactly 5,000,000 → 2,500,000) and
+**citation persistence** across a simulated restart (a fresh
+adapter over the same citation index produces identical
+citations). Live runs against a real Zep workspace are opt-in and
+reported, not gated.
 
 ## Honest status
 
@@ -190,9 +204,10 @@ opt-in and reported, not gated.
 - The offline adapter is a semantics-faithful local graph, not a
   simulation of Zep's ranking quality; brief *correctness* results
   on it prove the assembly rules, not Zep's retrieval quality.
-- In the `zep` profile the episode-payload citation index is kept
-  in process in v1; persisting it in the blueprint's Postgres
-  store is the documented next step (see `docs/architecture.md`).
+- The episode-payload citation index persists in Postgres
+  (migration 0003) whenever `DATABASE_URL` is set, in both
+  profiles. Without a database it stays in process — that is the
+  test-double mode, and `/readiness` reports which one is live.
 
 ## Layout
 

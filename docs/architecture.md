@@ -56,10 +56,19 @@ Two adapters:
   no-key runs. It does not do Zep's learned extraction or semantic
   ranking, and nothing in the repo claims otherwise.
 
-**Honest limit (v1):** the `zep` adapter's citation index is kept
-in process. Persisting it in the blueprint's Postgres store is the
-documented next step; until then a process restart re-derives it
-by re-ingesting the account's documents (ingestion is idempotent).
+**The citation index is a store.** The episode payloads the cited
+layer reads from are persisted in the blueprint's Postgres
+(`citation_index`, migration 0003 — :mod:`citations`): one record
+per episode carrying the episode plus the facts and edges it
+contributed. Both profiles write through it at ingestion — the
+offline adapter directly, the zep adapter for its payload index —
+and an adapter hydrates an account's state from it on first
+touch, so a process restart re-reads the cited layer from the
+database instead of losing it. With no `DATABASE_URL` there is
+no index: the adapters keep their in-process form (the
+test-double mode), and `/readiness` reports which one is live
+(`citation_index: postgres | in-memory test double |
+in-process only`).
 
 ## The temporal rule
 
@@ -129,11 +138,56 @@ early sketch had one, the shipped pipeline does not — appetite is
 the carrier's policy engine's job, and bolting a toy version onto
 the brief would blur exactly the line this blueprint draws.
 
+## Brief diffs — what changed since the last brief
+
+Briefs are the record, so a revisit can be answered from the
+record. At verify time, each stored brief is compared against a
+baseline brief for the same account and the comparison is
+attached to the new brief as its `diff` (:mod:`diffing`). The
+comparison reads the two brief payloads only — fact sets, never
+prose — so it is deterministic and involves no model:
+
+- **added** — a (predicate, entity) key current now that was not
+  current in the baseline;
+- **superseded** — a key whose current value handed off: either
+  both briefs carry the key with different values, or the old
+  value sits in the new brief's superseded section as *replaced*
+  (the entry names the successor the new brief itself records);
+- **removed** — a key current in the baseline and current no
+  longer: its window closed (*expired*), or it is absent from the
+  new brief entirely. Removals are always named — a fact never
+  leaves a brief silently;
+- **decisions** — the baseline brief's own gate decision (it was
+  recorded after that brief was assembled, so it belongs to the
+  interval), plus any new `underwriter_decision` fact, deduplicated
+  when both name the same decision.
+
+**The baseline rule** is the temporal discipline applied to the
+briefs themselves: the baseline is the most recent stored brief
+for the account that is not this brief, did not fail verification
+(a brief that must not be used cannot anchor a comparison), and
+has an `as_of` **not later than** this brief's. A brief never
+diffs against a brief that looked further into the future — an
+as-of re-assembly dated before an existing brief gets no diff
+rather than a change narrative written with borrowed hindsight.
+Equal `as_of` is allowed, disambiguated by the store's insertion
+order, because re-assembling at the same as-of after new documents
+land is the normal desk flow. When no brief qualifies, `diff` is
+`None` and every surface — API, text export, console — says
+*first brief* instead of showing an empty comparison.
+
+The diff rides the brief record, so the cached brief payload
+carries it too: the cache's facts-version bump on ingestion
+covers the diff exactly as it covers the facts (a test pins the
+pair together), and the gate's resume path preserves it on the
+decided brief.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
 |---|---|---|
 | Brief records + decisions | PostgreSQL (`briefs`, JSONB payload, numbered migrations + startup runner) | In-memory store (test double) |
+| Citation index | PostgreSQL (`citation_index`, migration 0003) — the episode payloads behind every citation | In-process adapter memory (test-double mode) |
 | Graph checkpoints | PostgreSQL via the LangGraph Postgres checkpointer | MemorySaver; `CHECKPOINTS=off` → service-state gate |
 | Source documents | S3-compatible object storage (SeaweedFS in compose), key `accounts/<id>/documents/<doc_id>.json` | Not archived (inline only) |
 | **Cache + ingestion locks** | **Redis** (below) | **Disabled — stated, not substituted** |
@@ -227,6 +281,8 @@ src/zep_context_agent/
   assembly.py      resolve → cite → flag → brief     narrate.py  verified-or-template summary
   graph.py         LangGraph: ingest → assemble → verify → gate (interrupt)
   decisions.py     the gate decision + decision-memo write-back
+  citations.py     the citation index store (Postgres + in-memory double)
+  diffing.py       brief diffs: what changed since the previous brief, in code
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off

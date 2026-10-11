@@ -113,7 +113,7 @@ def run_migrations(url: str | None = None) -> list[str]:
     at every startup). The LangGraph checkpointer's own tables are
     not here: the official Postgres saver creates them via its
     ``setup()`` (see ``checkpoints.py``). What lives here is this
-    application's schema: the brief store.
+    application's schema: the brief store and the citation index.
     """
     resolved = url or database_url()
     if not resolved:
