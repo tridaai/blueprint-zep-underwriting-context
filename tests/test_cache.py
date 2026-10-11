@@ -65,6 +65,39 @@ def test_invalidation_on_ingest(cached_service):
     assert [f.value for f in after.current_facts if f.predicate == "policy_limit_usd"] == [3000000]
 
 
+def test_invalidation_covers_the_diff_field(cached_service):
+    """The brief diff rides in the cached payload: after a
+    superseding ingestion, the re-assembled brief must show the
+    new fact AND a diff reflecting the change — and the diff
+    survives being served back from the cache."""
+    first = cached_service.assemble("ACC-001", as_of=AS_OF)
+    assert first.diff is None  # first brief for the account
+    doc = SourceDocument(
+        doc_id="DOC-001-END3", account_id="ACC-001", kind="endorsement",
+        title="Late endorsement — limit raised", received_at=date(2026, 5, 1),
+        assertions=[
+            FactAssertion(
+                predicate="policy_limit_usd", value=3000000,
+                valid_from=date(2026, 5, 1), entity_ref="POL-ACC001-2024",
+            )
+        ],
+    )
+    ingest_document(cached_service.port, doc)
+    after = cached_service.assemble("ACC-001", as_of=AS_OF)
+    assert after.brief_id != first.brief_id
+    assert after.diff is not None
+    assert after.diff.previous_brief_id == first.brief_id
+    changes = [c for c in after.diff.superseded if c.predicate == "policy_limit_usd"]
+    assert len(changes) == 1
+    assert changes[0].previous_value == 2500000
+    assert changes[0].current_value == 3000000
+    # Served from the cache under the new version, diff intact.
+    served = cached_service.assemble("ACC-001", as_of=AS_OF)
+    assert served.brief_id == after.brief_id
+    assert served.diff is not None
+    assert served.diff.previous_brief_id == first.brief_id
+
+
 def test_decision_invalidates_cached_brief(cached_service):
     brief = cached_service.assemble("ACC-002", as_of=AS_OF)
     cached_service.decide(

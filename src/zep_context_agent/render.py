@@ -57,6 +57,56 @@ def render_brief_text(brief: Brief) -> str:
             f"[source: {fact.doc_title} ({fact.doc_id})]"
         )
     lines.append("")
+    if brief.diff is None:
+        lines.append("WHAT CHANGED")
+        lines.append("  First brief — no earlier brief to compare against.")
+    else:
+        diff = brief.diff
+        lines.append(
+            "WHAT CHANGED SINCE "
+            f"{diff.previous_as_of.isoformat()} (brief {diff.previous_brief_id})"
+        )
+        if not (diff.added or diff.superseded or diff.removed or diff.decisions):
+            lines.append(
+                "  No changes — the facts stand as the previous brief left them."
+            )
+        for fact in diff.added:
+            ref = f" [{fact.entity_ref}]" if fact.entity_ref else ""
+            lines.append(
+                f"  + added: {fact.predicate}{ref}: "
+                f"{_value(fact.value, fact.unit)} "
+                f"[source: {fact.doc_title} ({fact.doc_id})]"
+            )
+        for change in diff.superseded:
+            ref = f" [{change.entity_ref}]" if change.entity_ref else ""
+            now = (
+                _value(change.current_value, change.unit)
+                if change.current_value is not None
+                else "no current successor"
+            )
+            lines.append(
+                f"  ~ superseded: {change.predicate}{ref}: "
+                f"{_value(change.previous_value, change.unit)} → {now}"
+            )
+        for fact in diff.removed:
+            ref = f" [{fact.entity_ref}]" if fact.entity_ref else ""
+            lines.append(
+                f"  - removed: {fact.predicate}{ref}: "
+                f"{_value(fact.value, fact.unit)} — no longer current "
+                f"[was source: {fact.doc_title} ({fact.doc_id})]"
+            )
+        for decision in diff.decisions:
+            by = f" by {decision.actor}" if decision.actor else ""
+            on = (
+                f" on {decision.decided_on.isoformat()}"
+                if decision.decided_on
+                else ""
+            )
+            lines.append(
+                f"  · decision recorded: {decision.action} on brief "
+                f"{decision.brief_id}{by}{on}"
+            )
+    lines.append("")
     lines.append("NOT RESOLVED FROM THE FILE")
     lines.append(
         "  " + (", ".join(brief.missing_predicates) if brief.missing_predicates else "(none)")

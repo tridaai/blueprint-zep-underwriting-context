@@ -73,6 +73,56 @@ class VerificationResult(BaseModel):
     violations: list[str] = Field(default_factory=list)
 
 
+class DiffFact(BaseModel):
+    """One fact in a brief diff: an addition, or a removal."""
+
+    predicate: str
+    value: FactValue
+    unit: str = ""
+    entity_ref: str = ""
+    doc_id: str = ""
+    doc_title: str = ""
+
+
+class DiffSuperseded(BaseModel):
+    """A fact whose value handed off between the two briefs: the
+    value the previous brief showed as current, and what stands
+    in its place now (``current_value`` is the successor the new
+    brief itself names; it is ``None`` only when that successor is
+    itself no longer current)."""
+
+    predicate: str
+    entity_ref: str = ""
+    unit: str = ""
+    previous_value: FactValue
+    current_value: FactValue | None = None
+    previous_doc_id: str = ""
+    current_doc_id: str = ""
+
+
+class DiffDecision(BaseModel):
+    """A gate decision recorded between the two briefs."""
+
+    brief_id: str
+    action: str
+    actor: str = ""
+    decided_on: date | None = None
+
+
+class BriefDiff(BaseModel):
+    """What changed since the previous brief, computed in code
+    from the two stored brief payloads (see :mod:`diffing`).
+    ``None`` on a brief means no earlier brief was eligible to
+    compare against — the surfaces say "first brief"."""
+
+    previous_brief_id: str
+    previous_as_of: date
+    added: list[DiffFact] = Field(default_factory=list)
+    superseded: list[DiffSuperseded] = Field(default_factory=list)
+    removed: list[DiffFact] = Field(default_factory=list)
+    decisions: list[DiffDecision] = Field(default_factory=list)
+
+
 class Decision(BaseModel):
     action: DecisionAction
     actor: str
@@ -105,6 +155,7 @@ class Brief(BaseModel):
     narrative_source: str = ""  # "model:<name>" | "template"
     flags: list[str] = Field(default_factory=list)
     verification: VerificationResult | None = None
+    diff: BriefDiff | None = None
     decision: Decision | None = None
     audit: list[AuditEntry] = Field(default_factory=list)
     created_at: datetime

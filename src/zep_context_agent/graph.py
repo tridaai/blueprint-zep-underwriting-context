@@ -32,7 +32,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
-from . import assembly, decisions, guardrails, ingestion, narrate
+from . import assembly, decisions, diffing, guardrails, ingestion, narrate
 from .ontology import Account
 from .ports import ContextPort
 from .schemas import Brief, VerificationResult
@@ -93,6 +93,11 @@ def step_verify(runtime: Runtime, brief: Brief) -> Brief:
             + "; ".join(violations)
         )
     runtime.store.save(brief)
+    # The brief remembers: diff it against the previous stored
+    # brief for the account (see diffing for the baseline rule).
+    # attach_diff re-saves with the diff attached; a first brief
+    # keeps diff=None and the surfaces say so.
+    diffing.attach_diff(runtime.store, brief)
     return brief
 
 

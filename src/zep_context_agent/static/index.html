@@ -249,6 +249,19 @@ function showBrief(brief) {
     <h2>Superseded facts (${brief.superseded_facts.length}) — shown as superseded</h2>
     <table><tr><th>Predicate</th><th>Was</th><th>Outcome</th><th>Citation</th></tr>
     ${factRows(brief.superseded_facts, true) || '<tr><td colspan="4" class="small">None.</td></tr>'}</table>`;
+  if (brief.diff) {
+    const d = brief.diff;
+    const items = [
+      ...d.added.map(f => `<li>+ added: <strong>${f.predicate}</strong> — ${fmtVal(f.value, f.unit)} <span class="cite">(${f.doc_id})</span></li>`),
+      ...d.superseded.map(c => `<li>~ superseded: <strong>${c.predicate}</strong> — ${fmtVal(c.previous_value, c.unit)} → ${c.current_value === null || c.current_value === undefined ? "no current successor" : fmtVal(c.current_value, c.unit)}</li>`),
+      ...d.removed.map(f => `<li>− removed: <strong>${f.predicate}</strong> — ${fmtVal(f.value, f.unit)}, no longer current <span class="cite">(${f.doc_id})</span></li>`),
+      ...d.decisions.map(x => `<li>· decision recorded: ${x.action} on brief ${x.brief_id}${x.actor ? " by " + x.actor : ""}${x.decided_on ? " on " + x.decided_on : ""}</li>`),
+    ];
+    html += `<div class="card" style="margin-top:14px"><strong>What changed since ${d.previous_as_of}</strong> (brief ${d.previous_brief_id}):` +
+      (items.length ? `<ul>${items.join("")}</ul>` : ` <span class="small">No changes — the facts stand as the previous brief left them.</span>`) + `</div>`;
+  } else {
+    html += `<div class="small" style="margin-top:10px">First brief — no earlier brief to compare against.</div>`;
+  }
   if (brief.missing_predicates.length) {
     html += `<div class="card warn"><strong>Not resolved from the file:</strong> ${brief.missing_predicates.join(", ")}. The brief says so instead of guessing.</div>`;
   }
