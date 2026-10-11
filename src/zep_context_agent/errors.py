@@ -57,6 +57,16 @@ class FollowThroughError(ContextError):
     followthrough.py."""
 
 
+class ReviewError(ContextError):
+    """A review-gate action that cannot be taken.
+
+    Confirming or rejecting a candidate that does not exist, is
+    not pending, or sits under a different account — or a
+    rejection without the reason the audit requires — raises this
+    error with the cause named. The candidate record is never
+    edited by a refused action."""
+
+
 class IngestionInProgress(ContextError):
     """Another worker holds this account's ingestion lock.
 

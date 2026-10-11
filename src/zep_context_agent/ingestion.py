@@ -14,6 +14,15 @@ The pipeline for one document, in order:
    ContextPort. Episode ids are derived from the document id, so
    re-ingesting the same account is idempotent in every adapter.
 
+One gate sits inside step 3, in the adapters: provenance. A
+document's kind assigns its assertions a tier (see
+:mod:`ontology`): system records and filed documents become
+facts on arrival, but a correspondence document's assertions
+become *candidates* — held at the review gate until an
+underwriter confirms them (see :mod:`review`). The screen is
+upstream of the gate: a quarantined document's assertions become
+neither facts nor candidates.
+
 Nothing here interprets a document: assertions arrive structured
 (an ACORD extract, a claims run, an endorsement schedule — in a
 production deployment, the output of the carrier's document

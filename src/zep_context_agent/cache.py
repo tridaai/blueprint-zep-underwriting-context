@@ -57,7 +57,7 @@ from datetime import date
 from pydantic import TypeAdapter
 
 from .config import env_str
-from .ontology import Edge, Episode, Fact, SourceDocument
+from .ontology import CandidateFact, Edge, Episode, Fact, SourceDocument
 from .ports import ContextPort
 
 logger = logging.getLogger("zep_context_agent.cache")
@@ -339,6 +339,36 @@ class CachingContextPort:
         stored = self._delegate.ingest_episode(doc, episode)
         self._bump(episode.account_id)
         return stored
+
+    # -- the review gate --------------------------------------------------
+    # Candidate reads are never cached: review state changes by a
+    # human action outside ingestion, and a cached queue would
+    # show the desk a decision that was already taken. A
+    # confirmation, though, changes the account's facts — so it
+    # bumps the facts-version exactly like an ingestion, orphaning
+    # every brief and retrieval entry written before it.
+
+    def get_candidates(
+        self, account_id: str, state: str | None = None
+    ) -> list[CandidateFact]:
+        return self._delegate.get_candidates(account_id, state)
+
+    def confirm_candidate(
+        self, account_id: str, candidate_id: str, *, actor: str, at
+    ) -> Fact:
+        fact = self._delegate.confirm_candidate(
+            account_id, candidate_id, actor=actor, at=at
+        )
+        self._bump(account_id)
+        return fact
+
+    def reject_candidate(
+        self, account_id: str, candidate_id: str, *, actor: str,
+        reason: str, at,
+    ) -> CandidateFact:
+        return self._delegate.reject_candidate(
+            account_id, candidate_id, actor=actor, reason=reason, at=at
+        )
 
     # -- cached reads -----------------------------------------------------------
 

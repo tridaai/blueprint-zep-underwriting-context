@@ -90,6 +90,45 @@ def predicate_label(predicate: str) -> str:
     """The underwriter-terms name for a predicate."""
     return PREDICATE_LABELS.get(predicate, predicate)
 
+
+# ---------------------------------------------------------------------------
+# Provenance tiers: where a document's assertions come from decides
+# how they enter the graph.
+#
+# - ``system_record`` — produced inside the system itself (the gate's
+#   decision memos). It enters on arrival: the system does not review
+#   its own records.
+# - ``filed_document`` — the carrier's structured paper: submissions,
+#   claims extracts, endorsement schedules, inspection reports. The
+#   assertions arrive as structured extracts of filed documents and
+#   enter on arrival.
+# - ``correspondence`` — broker letters, emails, and notes. Free-text
+#   channels: the injection screen already treats their prose as
+#   untrusted, and their *assertions* are held to the same standard —
+#   they land as candidate facts (see CandidateFact) and enter the
+#   graph only when an underwriter confirms them at the review gate
+#   (see review.py). Nothing else is gated: the tier is a property
+#   of the document kind, decided here, in one place.
+# ---------------------------------------------------------------------------
+
+ORIGIN_TIERS: dict[str, str] = {
+    "decision_memo": "system_record",
+    "submission": "filed_document",
+    "claims_extract": "filed_document",
+    "endorsement": "filed_document",
+    "inspection": "filed_document",
+    "correspondence": "correspondence",
+}
+
+
+def origin_tier_for_kind(kind: str) -> str:
+    """The provenance tier a document kind's assertions carry.
+
+    An unknown kind is filed paper by default — the correspondence
+    tier must be chosen by the ontology, never fallen into."""
+    return ORIGIN_TIERS.get(kind, "filed_document")
+
+
 FactValue = str | int | float
 
 
@@ -158,9 +197,64 @@ class Fact(BaseModel):
     entity_ref: str = ""
     valid_from: date
     valid_to: date | None = None
-    recorded_at: date  # the date of the document that asserted it
+    # The date the graph recorded the fact. For facts that enter on
+    # arrival (system records, filed documents) that is the
+    # asserting document's received date. For a fact that entered
+    # through the review gate it is the confirmation date: the
+    # document's own date is document truth and stays on its
+    # episode and its candidate record, but the graph did not
+    # record the fact until the desk attested it — and temporal
+    # resolution's tie-break (latest recorded_at wins among equal
+    # windows) then honours the attestation as the latest
+    # recording, instead of letting a confirmed fact silently lose
+    # to paper that arrived while it waited for review.
+    recorded_at: date
     episode_id: str
     doc_id: str
+    # The provenance tier of the asserting document (see
+    # ORIGIN_TIERS). Facts written before the tiers existed carry
+    # the filed-document default when read back.
+    origin: str = "filed_document"
+    # The review gate's stamps, set only on a fact that entered by
+    # confirmation: who attested it, and when (== recorded_at).
+    confirmed_by: str = ""
+    confirmed_at: date | None = None
+
+
+class CandidateFact(BaseModel):
+    """A correspondence assertion waiting at the review gate.
+
+    The extracted fact, exactly as its document asserted it, plus
+    the review state: ``pending`` until an underwriter confirms it
+    (it becomes a :class:`Fact` in the graph, keeping this id) or
+    rejects it (the record stays, with the reason — the audit of
+    what the desk refused, never a silent deletion). Candidates
+    live in the cited layer beside the facts (adapters + citation
+    index), but no read surface serves them: briefs, timelines,
+    and the expiry watch read facts only, so a pending candidate
+    is indistinguishable from absent until it is confirmed.
+    """
+
+    candidate_id: str  # the fact_id the fact carries on confirmation
+    account_id: str
+    episode_id: str
+    doc_id: str
+    doc_title: str
+    doc_kind: str  # the asserting document's kind ("correspondence")
+    origin: str = "correspondence"
+    predicate: str
+    value: FactValue
+    unit: str = ""
+    entity_ref: str = ""
+    valid_from: date
+    valid_to: date | None = None
+    document_received_at: date  # the asserting document's own date
+    excerpt: str = ""  # the document's free text — untrusted, fenced at render
+    state: Literal["pending", "confirmed", "rejected"] = "pending"
+    review_actor: str = ""
+    review_reason: str = ""
+    reviewed_at: datetime | None = None
+    fact_recorded_at: date | None = None  # set on confirmation
 
 
 class Edge(BaseModel):

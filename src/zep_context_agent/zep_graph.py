@@ -16,6 +16,13 @@ SDK is vendored in. How the mapping works, honestly:
   citation index store is wired in (production wiring attaches
   the Postgres one), it persists there and a restart re-reads the
   cited layer from the database — see :mod:`citations`.
+- **The review gate** governs the cited layer on this profile
+  exactly as it does offline: the episode payload goes to Zep as
+  ingested (Zep's server-side graph is Zep's), but a
+  correspondence document's assertions are held as candidates in
+  the index and cited by no brief until an underwriter confirms
+  them — the same posture quarantine already takes on this
+  adapter. The gate's methods delegate to the index.
 - **The context block** is Zep's own: a per-account thread's user
   context, fetched live. If Zep is unreachable the call raises —
   the brief then assembles from cited facts alone and says the
@@ -37,7 +44,7 @@ import httpx
 from .config import env_float, env_str
 from .errors import ContextNotConfigured, ContextUnavailable
 from .offline_graph import OfflineContextGraph
-from .ontology import Edge, Episode, Fact, SourceDocument
+from .ontology import CandidateFact, Edge, Episode, Fact, SourceDocument
 
 DEFAULT_BASE_URL = "https://api.getzep.com/api/v2"
 
@@ -158,6 +165,28 @@ class ZepContextGraph:
             {"group_id": _group_id(account_id), "query": query, "limit": limit},
         )
         return self._index.search_facts(account_id, query, limit)
+
+    # -- the review gate (the cited layer's, via the index) ---------------
+
+    def get_candidates(
+        self, account_id: str, state: str | None = None
+    ) -> list[CandidateFact]:
+        return self._index.get_candidates(account_id, state)
+
+    def confirm_candidate(
+        self, account_id: str, candidate_id: str, *, actor: str, at
+    ) -> Fact:
+        return self._index.confirm_candidate(
+            account_id, candidate_id, actor=actor, at=at
+        )
+
+    def reject_candidate(
+        self, account_id: str, candidate_id: str, *, actor: str,
+        reason: str, at,
+    ) -> CandidateFact:
+        return self._index.reject_candidate(
+            account_id, candidate_id, actor=actor, reason=reason, at=at
+        )
 
     def get_context_block(self, account_id: str, as_of: date) -> str | None:
         thread_id = _thread_id(account_id)

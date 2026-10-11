@@ -9,7 +9,10 @@ block, and the eval pack:
 - Among candidates for the same (predicate, entity_ref), the
   **current** fact is the one with the latest ``valid_from``;
   ties break on the latest ``recorded_at`` (a correction recorded
-  later wins over the document it corrects).
+  later wins over the document it corrects). For a fact admitted
+  through the review gate, ``recorded_at`` is its confirmation
+  date (see ontology.Fact), so the desk's attestation competes
+  as the latest recording — by design, not by accident.
 - Every other fact that was ever in force before ``as_of`` but is
   not current is **superseded** — either replaced by the current
   fact for its key, or expired with no successor. Facts whose

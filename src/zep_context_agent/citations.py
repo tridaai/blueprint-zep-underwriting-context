@@ -27,6 +27,14 @@ episode contributed. Reads hydrate an adapter's in-memory state
 lazily, per account, the first time the account is touched; after
 hydration the adapter serves from memory exactly as before, with
 the database as its backing record.
+
+The index also carries the review gate's candidate records
+(migration 0006): a correspondence episode's assertions wait here
+— beside the cited layer, never in it — so the queue survives a
+restart like everything else the desk relies on. A confirmation
+appends the admitted fact to its episode's record here
+(:meth:`append_facts`) and updates the candidate's state; a
+rejection updates the state and nothing else.
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ from __future__ import annotations
 import json
 import threading
 
-from .ontology import Edge, Episode, Fact
+from .ontology import CandidateFact, Edge, Episode, Fact
 
 
 class InMemoryCitationIndex:
@@ -45,6 +53,8 @@ class InMemoryCitationIndex:
     def __init__(self) -> None:
         self._records: dict[tuple[str, str], tuple[Episode, list[Fact], list[Edge]]] = {}
         self._order: list[tuple[str, str]] = []
+        self._candidates: dict[tuple[str, str], CandidateFact] = {}
+        self._candidate_order: list[tuple[str, str]] = []
 
     def record_episode(
         self,
@@ -58,6 +68,19 @@ class InMemoryCitationIndex:
             return  # ingestion is idempotent; the first record stands
         self._records[key] = (episode, list(facts), list(edges))
         self._order.append(key)
+
+    def append_facts(
+        self, account_id: str, episode_id: str, facts: list[Fact]
+    ) -> None:
+        """Add facts to an episode's standing record — the write a
+        confirmation makes when a candidate is admitted after its
+        episode was recorded with no facts."""
+        key = (account_id, episode_id)
+        if key not in self._records:
+            return
+        episode, ep_facts, ep_edges = self._records[key]
+        known = {f.fact_id for f in ep_facts}
+        ep_facts.extend(f for f in facts if f.fact_id not in known)
 
     def load_account(
         self, account_id: str
@@ -73,6 +96,31 @@ class InMemoryCitationIndex:
             facts.extend(ep_facts)
             edges.extend(ep_edges)
         return episodes, facts, edges
+
+    # -- the review gate's records ------------------------------------
+
+    def record_candidates(
+        self, account_id: str, candidates: list[CandidateFact]
+    ) -> None:
+        for candidate in candidates:
+            key = (account_id, candidate.candidate_id)
+            if key in self._candidates:
+                continue  # idempotent; the first record stands
+            self._candidates[key] = candidate
+            self._candidate_order.append(key)
+
+    def update_candidate(self, candidate: CandidateFact) -> None:
+        key = (candidate.account_id, candidate.candidate_id)
+        if key not in self._candidates:
+            self._candidate_order.append(key)
+        self._candidates[key] = candidate
+
+    def load_candidates(self, account_id: str) -> list[CandidateFact]:
+        return [
+            self._candidates[key]
+            for key in self._candidate_order
+            if key[0] == account_id
+        ]
 
 
 class PostgresCitationIndex:
@@ -116,6 +164,22 @@ class PostgresCitationIndex:
             )
             conn.commit()
 
+    def append_facts(
+        self, account_id: str, episode_id: str, facts: list[Fact]
+    ) -> None:
+        """Add facts to an episode's standing record (a review-gate
+        confirmation admitting a candidate after the fact)."""
+        if not facts:
+            return
+        payload = json.dumps([f.model_dump(mode="json") for f in facts])
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "UPDATE citation_index SET facts = facts || %s::jsonb "
+                "WHERE account_id = %s AND episode_id = %s",
+                (payload, account_id, episode_id),
+            )
+            conn.commit()
+
     def load_account(
         self, account_id: str
     ) -> tuple[list[Episode], list[Fact], list[Edge]]:
@@ -139,6 +203,63 @@ class PostgresCitationIndex:
             facts.extend(Fact.model_validate(f) for f in raw_facts)
             edges.extend(Edge.model_validate(e) for e in raw_edges)
         return episodes, facts, edges
+
+    # -- the review gate's records (migration 0006) --------------------
+
+    def record_candidates(
+        self, account_id: str, candidates: list[CandidateFact]
+    ) -> None:
+        if not candidates:
+            return
+        with self._lock, self._connect() as conn:
+            for candidate in candidates:
+                conn.execute(
+                    "INSERT INTO candidate_facts "
+                    "(candidate_id, account_id, episode_id, state, payload) "
+                    "VALUES (%s, %s, %s, %s, %s::jsonb) "
+                    "ON CONFLICT (candidate_id) DO NOTHING",
+                    (
+                        candidate.candidate_id,
+                        account_id,
+                        candidate.episode_id,
+                        candidate.state,
+                        json.dumps(candidate.model_dump(mode="json")),
+                    ),
+                )
+            conn.commit()
+
+    def update_candidate(self, candidate: CandidateFact) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO candidate_facts "
+                "(candidate_id, account_id, episode_id, state, payload) "
+                "VALUES (%s, %s, %s, %s, %s::jsonb) "
+                "ON CONFLICT (candidate_id) DO UPDATE SET "
+                "state = EXCLUDED.state, payload = EXCLUDED.payload, "
+                "updated_at = now()",
+                (
+                    candidate.candidate_id,
+                    candidate.account_id,
+                    candidate.episode_id,
+                    candidate.state,
+                    json.dumps(candidate.model_dump(mode="json")),
+                ),
+            )
+            conn.commit()
+
+    def load_candidates(self, account_id: str) -> list[CandidateFact]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM candidate_facts "
+                "WHERE account_id = %s ORDER BY seq",
+                (account_id,),
+            ).fetchall()
+        candidates = []
+        for (payload,) in rows:
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            candidates.append(CandidateFact.model_validate(payload))
+        return candidates
 
 
 def default_citation_index():
