@@ -11,7 +11,23 @@ def current(brief, predicate):
     return [f for f in brief.current_facts if f.predicate == predicate]
 
 
+def review_the_file(service, account_id):
+    """The desk's review pass over a file's correspondence
+    (round 6's gate): confirm every pending candidate, so the
+    briefs below assert the reviewed steady state — the state
+    the file's historical mail reached as it arrived."""
+    service.ingest(account_id)
+    for candidate in service.list_candidates(account_id, state="pending"):
+        service.review_candidate(
+            candidate.candidate_id,
+            account_id=account_id,
+            action="confirm",
+            actor="Test Desk",
+        )
+
+
 def test_demo_account_brief(service):
+    review_the_file(service, "ACC-001")
     brief = service.assemble("ACC-001", as_of=AS_OF)
     assert brief.status == "AWAITING_UNDERWRITER"
     assert brief.backend == "offline"
@@ -45,6 +61,7 @@ def test_mid_history_brief(service):
 
 
 def test_renamed_insured(service):
+    review_the_file(service, "ACC-003")
     brief = service.assemble("ACC-003", as_of=AS_OF)
     assert [f.value for f in current(brief, "legal_name")] == [
         "Brightpath Freight Group Inc"

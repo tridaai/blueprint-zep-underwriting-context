@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-11T19:03:09.164873+00:00",
+  "generated_at": "2026-10-11T19:38:04.712166+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -377,10 +377,14 @@
   },
   "persistence_scenario": {
     "checks": {
+      "unreviewed_brief_lacks_the_relocation": true,
+      "gate_holds_the_relocation": true,
+      "confirmed_brief_shows_the_relocation": true,
       "hydrated_facts_match": true,
       "hydrated_facts_nonempty": true,
       "citations_identical": true,
-      "citations_complete_after_restart": true
+      "citations_complete_after_restart": true,
+      "review_decision_survived": true
     },
     "passed": true
   },
@@ -435,6 +439,22 @@
     },
     "passed": true
   },
+  "review_scenario": {
+    "checks": {
+      "both_letter_assertions_wait": true,
+      "quarantine_is_upstream_of_the_gate": true,
+      "arrival_changes_no_brief": true,
+      "arrival_stales_nothing": true,
+      "confirmation_stales_the_decision": true,
+      "confirmed_fact_serves_the_brief": true,
+      "rejected_value_serves_nothing": true,
+      "wrong_value_in_no_brief_ever": true,
+      "duplicate_creates_no_candidates": true,
+      "queue_is_the_audit": true,
+      "decided_brief_byte_identical": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -445,7 +465,8 @@
     "citation_persistence": true,
     "staleness_scenario": true,
     "followthrough_scenario": true,
-    "timeline_scenario": true
+    "timeline_scenario": true,
+    "review_scenario": true
   },
   "passed": true
 }

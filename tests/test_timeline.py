@@ -280,9 +280,21 @@ def test_replaced_facts_are_not_lapses(service):
     # mid-window by an open-ended successor; ACC-011's policy
     # was renewed seamlessly. Neither may appear — as lapsed
     # or expiring — while ACC-006's inspection facts, never
-    # renewed, are the dataset's genuine lapse.
+    # renewed, are the dataset's genuine lapse. ACC-001's
+    # relocation arrived by broker email, so the desk's review
+    # pass (round 6's gate) confirms it first: as reviewed, the
+    # location's successor is in force and nothing lapses.
+    # (Unconfirmed, the watch would truthfully name the old
+    # location lapsed — its renewal would still be waiting.)
     for account_id in ("ACC-001", "ACC-011"):
         service.ingest(account_id)
+    for candidate in service.list_candidates("ACC-001", state="pending"):
+        service.review_candidate(
+            candidate.candidate_id,
+            account_id="ACC-001",
+            action="confirm",
+            actor="Test Desk",
+        )
     service.ingest("ACC-006")
     rows = service.expiry_watch(as_of=DATASET_PRESENT, horizon_days=45)
     assert [r for r in rows if r.account_id in ("ACC-001", "ACC-011")] == []
