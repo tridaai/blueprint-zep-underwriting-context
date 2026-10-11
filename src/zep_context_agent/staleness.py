@@ -366,7 +366,11 @@ def build_desk_queue(
     of ``today``: the relied-on facts running out under the
     account. The ordering is untouched by the watch — a
     lapsing policy does not outrank a stale decision; the
-    row simply says both."""
+    row simply says both. The same port access computes the
+    row's thin-fact count (see :mod:`support`): how many of
+    the account's current facts grade THIN. Also display
+    only — thin support is something to know at the gate,
+    not a re-ordering of the day."""
     today = today or date.today()
     stale_rows: list[tuple[datetime, DeskQueueEntry]] = []
     awaiting_rows: list[tuple[datetime, DeskQueueEntry]] = []
@@ -394,11 +398,15 @@ def build_desk_queue(
                     decided_on=latest.decision.decided_at.date(),
                 )
         if port is not None:
+            from . import support as support_mod
             from . import timeline as timeline_mod
             from .config import (
                 expiry_horizon_days as _default_horizon,
             )
 
+            entry.thin_fact_count = support_mod.thin_count(
+                port.get_facts(account_id), today
+            )
             entry.expiry = timeline_mod.desk_expiry(
                 timeline_mod.expiry_watch_for_account(
                     port=port,

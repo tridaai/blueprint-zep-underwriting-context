@@ -433,6 +433,13 @@ class DeskQueueEntry(BaseModel):
     # running out — the third clock on the row, beside the
     # decision's staleness and the ask's completeness.
     expiry: list[DeskExpiry] = Field(default_factory=list)
+    # How many of the account's current facts grade THIN on
+    # support (see :mod:`support`), computed as of the queue's
+    # date when the queue is built with port access — the same
+    # condition as the watch. ``None`` when the queue was built
+    # without the port: uncomputed, not zero. A display count
+    # only; the queue's order never reads it.
+    thin_fact_count: int | None = None
 
 
 class ReviewGroup(BaseModel):
@@ -487,6 +494,12 @@ class PortfolioRow(BaseModel):
     account_name: str
     signals: PortfolioSignals
     score: int
+    # How many of the account's current facts grade THIN on
+    # support (see :mod:`support`), as of the brief's date.
+    # Displayed on the row, deliberately NOT a signal: it has
+    # no weight, enters no score, and cannot move the ranking
+    # — the published weights are a separate, deliberate act.
+    thin_facts: int = 0
 
 
 class PortfolioBrief(BaseModel):

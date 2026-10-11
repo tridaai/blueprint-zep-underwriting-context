@@ -200,6 +200,9 @@ async function showQueue() {
       }).join("");
       html += `<div class="small" style="margin-top:6px">Running out under this account (a fact a renewal covers never appears here):</div><ul>${items}</ul>`;
     }
+    if (e.thin_fact_count) {
+      html += `<div class="small" style="margin-top:6px">Support: <strong>${e.thin_fact_count} current fact(s) grade thin</strong> — a single letter, or a value that replaced an earlier one. Open the brief's soft spots before leaning on them.</div>`;
+    }
     if (e.staleness) {
       const s = e.staleness;
       const moved = [
@@ -238,11 +241,11 @@ async function showPortfolio() {
   const el = $("#detail");
   const weights = SIGNAL_COLUMNS.map(([k, label]) => `${label.toLowerCase()} ${brief.weights[k]}`).join(" · ");
   let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The morning portfolio brief</h2>
-    <p class="small">The whole book as of ${brief.as_of}, expiry horizon ${brief.horizon_days} days. Every count is the per-account machinery's own verdict — the staleness watch, the follow-through store, the expiry watch, the review gate — counted, never re-derived. The score is the weighted sum, with the weights printed here because a ranking the desk cannot audit is a ranking it should not trust: ${weights}. An account with no decided brief is unexamined, not clean — it counts. An account with a decision and nothing outstanding scores zero and closes the list: a clean book is a fact worth printing. Click a row to open the account.</p>`;
+    <p class="small">The whole book as of ${brief.as_of}, expiry horizon ${brief.horizon_days} days. Every count is the per-account machinery's own verdict — the staleness watch, the follow-through store, the expiry watch, the review gate — counted, never re-derived. The score is the weighted sum, with the weights printed here because a ranking the desk cannot audit is a ranking it should not trust: ${weights}. An account with no decided brief is unexamined, not clean — it counts. An account with a decision and nothing outstanding scores zero and closes the list: a clean book is a fact worth printing. The thin-facts column counts current facts grading thin on support; it is shown for information and is deliberately not in the weights — it cannot move the ranking. Click a row to open the account.</p>`;
   if (!brief.rows.length) {
     html += `<div class="empty">No accounts.</div>`;
   } else {
-    html += `<table><tr><th>#</th><th>Account</th><th>Score</th>${SIGNAL_COLUMNS.map(([, label]) => `<th>${label}</th>`).join("")}<th></th></tr>`;
+    html += `<table><tr><th>#</th><th>Account</th><th>Score</th>${SIGNAL_COLUMNS.map(([, label]) => `<th>${label}</th>`).join("")}<th>Thin facts</th><th></th></tr>`;
     brief.rows.forEach((r, i) => {
       const cells = SIGNAL_COLUMNS.map(([k]) => `<td>${r.signals[k] ? `<strong>${r.signals[k]}</strong>` : `<span class="small">—</span>`}</td>`).join("");
       html += `<tr class="queue-row" data-account="${r.account_id}">
@@ -250,6 +253,7 @@ async function showPortfolio() {
         <td><strong></strong><br><span class="small">${r.account_id}</span></td>
         <td><strong>${r.score}</strong></td>
         ${cells}
+        <td>${r.thin_facts ? `<strong>${r.thin_facts}</strong>` : `<span class="small">—</span>`}</td>
         <td class="small">${r.score === 0 ? "nothing outstanding" : ""}</td>
       </tr>`;
     });
@@ -503,10 +507,28 @@ function factRows(facts, superseded) {
     const outcome = superseded
       ? (f.reason === "replaced" ? `replaced by ${fmtVal(f.successor_value, f.unit)}` : "expired, no successor")
       : `from ${f.valid_from}`;
+    const support = superseded ? "" : `<td>${f.support ? `<span class="pill ${f.support.grade === "THIN" ? "warn" : f.support.grade === "STRONG" ? "ok" : ""}">${f.support.grade}</span>` : `<span class="small">not graded</span>`}</td>`;
     return `<tr><td><strong>${f.predicate}</strong>${f.entity_ref ? ` <span class="small">[${f.entity_ref}]</span>` : ""}</td>
       <td>${fmtVal(f.value, f.unit)}</td><td>${outcome}</td>
-      <td class="cite">${f.doc_title} (${f.doc_id})</td></tr>`;
+      <td class="cite">${f.doc_title} (${f.doc_id})</td>${support}</tr>`;
   }).join("");
+}
+
+function softSpotsCard(brief) {
+  const graded = brief.current_facts.filter(f => f.support);
+  if (brief.current_facts.length && !graded.length) {
+    return `<div class="card"><strong>Soft spots</strong><div class="small" style="margin-top:6px">Not graded — this brief was assembled before support grading; assemble a fresh brief to grade it. The record is never rewritten to add grades.</div></div>`;
+  }
+  const thin = graded.filter(f => f.support.grade === "THIN");
+  if (!thin.length) {
+    return `<div class="card"><strong>Soft spots</strong><div class="small" style="margin-top:6px">None — every current fact grades STANDARD or STRONG.</div></div>`;
+  }
+  const items = thin.map(f => {
+    const s = f.support;
+    const replaced = s.contested ? ` (replaced ${fmtVal(s.contested_value, f.unit)} — ${s.contested_doc_title} (${s.contested_doc_id}))` : "";
+    return `<li><strong>${f.predicate}</strong>${f.entity_ref ? ` [${f.entity_ref}]` : ""} — ${fmtVal(f.value, f.unit)}: ${s.reasons.join("; ")}${replaced} <span class="cite">[source: ${f.doc_title} (${f.doc_id})]</span></li>`;
+  }).join("");
+  return `<div class="card warn"><strong>Soft spots — thin support, verify before relying</strong><ul>${items}</ul><div class="small">Grades: STRONG — the system's own record, or filed paper a second document corroborates. STANDARD — a single filed document, or a broker's letter with corroboration. THIN — a single correspondence source, or a value standing where an earlier value was replaced. A grade is information for the underwriter; it changes no gate.</div></div>`;
 }
 
 function showBrief(brief) {
@@ -527,8 +549,9 @@ function showBrief(brief) {
       <div class="small">Narrative source: ${brief.narrative_source} — prose about the facts, never a source of them.</div>
     </div>
     <h2>Current facts (${brief.current_facts.length})</h2>
-    <table><tr><th>Predicate</th><th>Value</th><th>In force</th><th>Citation</th></tr>
-    ${factRows(brief.current_facts, false) || '<tr><td colspan="4" class="small">None resolved.</td></tr>'}</table>
+    <table><tr><th>Predicate</th><th>Value</th><th>In force</th><th>Citation</th><th>Support</th></tr>
+    ${factRows(brief.current_facts, false) || '<tr><td colspan="5" class="small">None resolved.</td></tr>'}</table>
+    ${softSpotsCard(brief)}
     <h2>Superseded facts (${brief.superseded_facts.length}) — shown as superseded</h2>
     <table><tr><th>Predicate</th><th>Was</th><th>Outcome</th><th>Citation</th></tr>
     ${factRows(brief.superseded_facts, true) || '<tr><td colspan="4" class="small">None.</td></tr>'}</table>`;

@@ -194,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
                             f"  EXPIRING {x.predicate} "
                             f"(in {x.days_remaining}d)"
                         )
+                if entry.thin_fact_count:
+                    line += f"  THIN {entry.thin_fact_count} fact(s)"
                 print(line)
         elif args.command == "portfolio":
             brief = service.portfolio_brief(

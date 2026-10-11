@@ -47,6 +47,16 @@ that projection:
   surface. Both properties are pinned by test: the queue,
   the watch, and every store read byte-identical before and
   after the brief is built.
+- **Thin facts ride along, unweighted** (round 8). Each row
+  also counts the account's current facts grading THIN on
+  support (:mod:`support`) as of the brief's date — the
+  soft spots under the account, next to its signals. The
+  count is displayed and *only* displayed: it has no entry
+  in :data:`PORTFOLIO_WEIGHTS`, enters no score, and cannot
+  move a single row. The weights above are published data;
+  if the desk ever wants thin support to rank, that is a
+  separate, deliberate change to the weights — argued in
+  the open, not smuggled in as a side effect of a count.
 
 Like the timeline and the watch, the brief is a **pure
 projection**: it reads the port and the record stores and
@@ -62,6 +72,7 @@ from datetime import date
 
 from . import followthrough as follow_mod
 from . import staleness as staleness_mod
+from . import support as support_mod
 from . import timeline as timeline_mod
 from .ontology import Account
 from .ports import ContextPort
@@ -182,6 +193,13 @@ def build_portfolio_brief(
                 account_name=account.display_name,
                 signals=signals,
                 score=score_signals(signals),
+                # Display only — never scored (see the module
+                # docstring): the count of the account's
+                # current facts grading THIN at the brief's
+                # date, from the support module's own grading.
+                thin_facts=support_mod.thin_count(
+                    port.get_facts(account_id), as_of
+                ),
             )
         )
     rows.sort(key=lambda r: (-r.score, r.account_name, r.account_id))
@@ -206,7 +224,9 @@ def render_portfolio_text(brief: PortfolioBrief) -> str:
         f"MORNING PORTFOLIO BRIEF — {len(brief.rows)} account(s) "
         f"as of {brief.as_of} (expiry horizon {brief.horizon_days} days)",
         f"Ranking weights: {weights}. Score is the weighted sum "
-        "of the signal counts; ties break by account name.",
+        "of the signal counts; ties break by account name. "
+        "Thin-fact counts (support grading) are shown for "
+        "information only — unweighted, never scored.",
         "",
     ]
     if not brief.rows:
@@ -219,6 +239,8 @@ def render_portfolio_text(brief: PortfolioBrief) -> str:
             if getattr(row.signals, name)
         ]
         detail = "; ".join(counts) if counts else "nothing outstanding"
+        if row.thin_facts:
+            detail += f"; {row.thin_facts} thin fact(s)"
         lines.append(
             f"{rank:>3}. {row.account_id}  {row.account_name} — "
             f"score {row.score}: {detail}"
