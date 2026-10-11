@@ -124,6 +124,7 @@ Provider-first: the standard run is your Zep deployment.
 | `CONTEXT_BACKEND=offline` | The labelled local temporal graph — tests, evals, demos. |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | Optional narrative model, any OpenAI-compatible endpoint (including a self-hosted NVIDIA NIM container or the hosted NIM catalog). No key → deterministic template narrative, labelled as such. |
 | `DATABASE_URL` | PostgreSQL: brief records + LangGraph checkpointer. Unset → in-memory test doubles, and `/readiness` says so. |
+| `REDIS_URL` | Optional. The brief/retrieval cache + ingestion coordination lock (see below). Unset → caching disabled, and `/readiness` says so. |
 | `S3_ENDPOINT_URL` / `S3_BUCKET` | Source documents in S3-compatible object storage (SeaweedFS in the compose stack). |
 
 Copy `.env.example` to `.env` and fill in only what you use. If the
@@ -131,6 +132,21 @@ Zep profile is selected but not configured — or configured but
 unreachable — the service says exactly that. It never silently
 falls back to the offline graph and presents local results as
 Zep's.
+
+**The Redis cache, briefly.** With `REDIS_URL` set, assembled
+briefs and context-port retrieval results are cached under
+account-scoped keys stamped with the account's *facts-version* —
+a counter bumped on every episode ingested for that account, so a
+new endorsement (or a gate decision) instantly orphans everything
+cached before it: a brief can never serve facts older than the
+latest ingestion. Redis also carries the per-account ingestion
+lock, so two workers never ingest the same account at once. Redis
+is an accelerator and a coordinator, never a source of truth —
+Postgres and the context port stay authoritative — and it is
+optional: unset, caching is disabled and `/readiness` says so; it
+is never silently replaced by an in-memory substitute outside
+tests. The full design is in
+[docs/architecture.md](docs/architecture.md#the-cache-layer-redis).
 
 ## The context port
 
@@ -183,7 +199,7 @@ opt-in and reported, not gated.
 ```
 src/zep_context_agent/   the agent: ontology, port + adapters,
                            ingestion, assembly, guardrails, graph,
-                           service, API, console
+                           cache, service, API, console
 migrations/                numbered SQL migrations (Postgres)
 evals/                     the golden eval pack and its runner
 data/                      the synthetic dataset generator
