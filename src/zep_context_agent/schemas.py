@@ -190,12 +190,75 @@ class StalenessRecord(BaseModel):
     resolved_by: str | None = None
 
 
+class FollowThroughItem(BaseModel):
+    """One thing a request-info decision asked the broker for.
+
+    ``kind`` is ``predicate`` (a fact the brief could not resolve)
+    or ``document`` (a quarantined document to resend cleanly).
+    State is ``open`` until the answer is recognised in a fresh
+    assembly, then ``received`` — with the episode that satisfied
+    it named, so the desk can see exactly what closed the item.
+    """
+
+    kind: Literal["predicate", "document"]
+    predicate: str = ""  # predicate items
+    label: str  # the underwriter-terms name the draft asked by
+    doc_id: str = ""  # document items: the quarantined document
+    doc_title: str = ""
+    episode_id: str = ""  # document items: the quarantined episode
+    reason: str = ""  # document items: why it was quarantined
+    status: Literal["open", "received"] = "open"
+    received_episode_id: str = ""
+    received_at: datetime | None = None
+
+
+class FollowThroughRecord(BaseModel):
+    """A request-info decision, followed through.
+
+    Opened when an underwriter records ``request_info`` on a
+    brief: the ask — missing predicates, quarantined documents to
+    resend — composed in code from that brief, with a deterministic
+    draft the underwriter can copy. The draft is never sent; there
+    is no send path. Items flip to ``received`` as broker replies
+    are ingested and recognised against a fresh assembly's facts.
+    The record closes (``complete``) when every item is received.
+
+    The decided brief is never edited; this record lives apart
+    from it, like the staleness record. The two watches are
+    independent: an ask can complete while a staleness flag is
+    open, and a flag can resolve while an ask is still open.
+    """
+
+    record_id: str
+    account_id: str
+    brief_id: str  # the DECIDED (request_info) brief the ask came from
+    decision_actor: str
+    decision_reason: str
+    decided_at: datetime
+    created_at: datetime
+    items: list[FollowThroughItem] = Field(default_factory=list)
+    draft_text: str = ""
+    status: Literal["open", "partially_received", "complete"] = "open"
+    completed_at: datetime | None = None
+    updated_at: datetime
+
+
 class DeskDecision(BaseModel):
     """The decision summary a desk-queue row shows."""
 
     action: str
     actor: str
     decided_on: date | None = None
+
+
+class DeskFollowThrough(BaseModel):
+    """An account's request-info ask, as the desk queue shows it."""
+
+    record_id: str
+    brief_id: str  # the decided brief the ask came from
+    status: Literal["open", "partially_received", "complete"]
+    received_count: int
+    total_count: int
 
 
 class DeskStaleness(BaseModel):
@@ -229,6 +292,15 @@ class DeskQueueEntry(BaseModel):
     brief_as_of: date | None = None
     decision: DeskDecision | None = None
     staleness: DeskStaleness | None = None
+    # The request-info ask riding on the account's latest DECIDED
+    # brief, when one was opened. ``ready_for_review`` is the
+    # desk's signal that the broker has answered everything and
+    # the account waits on the underwriter again: it is set only
+    # when the ask is complete, belongs to the account's latest
+    # decided brief, and that brief is still the latest brief —
+    # once the underwriter re-assembles, the new brief is the work.
+    follow_through: DeskFollowThrough | None = None
+    ready_for_review: bool = False
 
 
 # -- API request shapes ------------------------------------------------------

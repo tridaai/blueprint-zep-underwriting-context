@@ -67,6 +67,29 @@ EXPECTED_PREDICATES: tuple[str, ...] = (
     "claims_count_3yr",
 )
 
+# How each predicate is named when an underwriter — or a broker —
+# reads it: the request-info draft (see followthrough.py) asks for
+# missing items by these names, never by raw predicate. A predicate
+# outside the map is named by its raw form (the fallback keeps a new
+# ontology predicate askable before its label is written).
+PREDICATE_LABELS: dict[str, str] = {
+    "legal_name": "Legal name of the insured",
+    "risk_class": "Risk class",
+    "annual_revenue_usd": "Annual revenue (USD)",
+    "primary_location": "Primary operating location",
+    "policy_limit_usd": "Policy limit (USD)",
+    "claims_count_3yr": "Claims count, last 3 years",
+    "underwriter_decision": "Underwriter decision",
+    "deductible_usd": "Deductible (USD)",
+    "inspection_grade": "Inspection grade",
+    "sprinkler_coverage_pct": "Sprinkler coverage (%)",
+}
+
+
+def predicate_label(predicate: str) -> str:
+    """The underwriter-terms name for a predicate."""
+    return PREDICATE_LABELS.get(predicate, predicate)
+
 FactValue = str | int | float
 
 

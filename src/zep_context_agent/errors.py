@@ -44,6 +44,19 @@ class DecisionError(ContextError):
     missing the actor the audit trail requires)."""
 
 
+class FollowThroughError(ContextError):
+    """A request-info ask with nothing in it.
+
+    A ``request_info`` decision opens a follow-through record from
+    the brief's gaps — missing predicates and quarantined
+    documents. Composing the ask for a brief with neither raises
+    this error: the draft is refused, with the reason, and no
+    record opens (the decision itself still records — the gate is
+    the human's; the service names the refusal on the brief's
+    audit trail instead of fabricating an empty ask). See
+    followthrough.py."""
+
+
 class IngestionInProgress(ContextError):
     """Another worker holds this account's ingestion lock.
 

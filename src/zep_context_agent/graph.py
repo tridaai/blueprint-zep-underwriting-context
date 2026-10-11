@@ -33,6 +33,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
 from . import assembly, decisions, diffing, guardrails, ingestion, narrate
+from . import followthrough as follow_mod
 from . import staleness as staleness_mod
 from .ontology import Account
 from .ports import ContextPort
@@ -44,13 +45,14 @@ class Runtime:
 
     def __init__(
         self, *, port: ContextPort, store, object_store, accounts,
-        staleness_store=None,
+        staleness_store=None, follow_store=None,
     ):
         self.port = port
         self.store = store
         self.object_store = object_store
         self.accounts: dict[str, Account] = accounts
         self.staleness_store = staleness_store
+        self.follow_store = follow_store
 
 
 class BriefState(TypedDict, total=False):
@@ -71,6 +73,7 @@ def step_ingest(runtime: Runtime, account: Account) -> None:
     episodes = ingestion.ingest_account(
         runtime.port, account, object_store=runtime.object_store
     )
+    new_ids = staleness_mod.new_episode_ids(before, episodes)
     if runtime.staleness_store is not None:
         # New material landed: if the account's latest brief is
         # DECIDED, did the facts move under its decision? (See
@@ -80,9 +83,17 @@ def step_ingest(runtime: Runtime, account: Account) -> None:
             brief_store=runtime.store,
             staleness_store=runtime.staleness_store,
             account=account,
-            trigger_episode_ids=staleness_mod.new_episode_ids(
-                before, episodes
-            ),
+            trigger_episode_ids=new_ids,
+        )
+    if runtime.follow_store is not None:
+        # …and did the broker answer an open request-info ask?
+        # (See followthrough.py — the two watches are independent
+        # and never write each other's records.)
+        follow_mod.evaluate_after_ingestion(
+            port=runtime.port,
+            follow_store=runtime.follow_store,
+            account=account,
+            trigger_episode_ids=new_ids,
         )
 
 

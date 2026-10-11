@@ -73,6 +73,7 @@ from .schemas import (
     Brief,
     BriefDiff,
     DeskDecision,
+    DeskFollowThrough,
     DeskQueueEntry,
     DeskStaleness,
     StalenessRecord,
@@ -349,6 +350,7 @@ def build_desk_queue(
     brief_store,
     staleness_store,
     *,
+    follow_store=None,
     today: date | None = None,
 ) -> list[DeskQueueEntry]:
     """Every account, in the order the desk should work it:
@@ -382,6 +384,41 @@ def build_desk_queue(
                     actor=latest.decision.actor,
                     decided_on=latest.decision.decided_at.date(),
                 )
+        if follow_store is not None:
+            # The ask riding on the account's latest DECIDED brief
+            # (see followthrough.py). Attached whatever the row's
+            # state — a stale decision and an open ask can both be
+            # true of one account, and the queue shows both.
+            decided_briefs = [
+                b
+                for b in briefs
+                if b.status == "DECIDED" and b.decision is not None
+            ]
+            if decided_briefs:
+                ask = next(
+                    (
+                        r
+                        for r in follow_store.list(account_id)
+                        if r.brief_id == decided_briefs[-1].brief_id
+                    ),
+                    None,
+                )
+                if ask is not None:
+                    entry.follow_through = DeskFollowThrough(
+                        record_id=ask.record_id,
+                        brief_id=ask.brief_id,
+                        status=ask.status,
+                        received_count=sum(
+                            1 for i in ask.items if i.status == "received"
+                        ),
+                        total_count=len(ask.items),
+                    )
+                    entry.ready_for_review = (
+                        ask.status == "complete"
+                        and latest is not None
+                        and latest.brief_id == ask.brief_id
+                        and latest.status == "DECIDED"
+                    )
         if open_recs:
             record = open_recs[0]
             entry.state = "decided_stale"

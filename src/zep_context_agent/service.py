@@ -25,12 +25,13 @@ from __future__ import annotations
 import logging
 import uuid
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 
 from langgraph.types import Command
 
 from . import cache as cache_mod
 from . import decisions
+from . import followthrough as follow_mod
 from . import staleness as staleness_mod
 from .checkpoints import get_checkpointer
 from .datasets import load_accounts
@@ -38,13 +39,15 @@ from .errors import (
     AccountNotFound,
     BriefNotFound,
     DecisionError,
+    FollowThroughError,
     IngestionInProgress,
 )
+from .followthrough import default_follow_store
 from .graph import Runtime, build_graph, run_pipeline
 from .ingestion import ingest_account
 from .object_store import get_object_store
 from .ontology import Account, Episode
-from .schemas import Brief
+from .schemas import AuditEntry, Brief
 from .staleness import default_staleness_store
 from .store import default_store
 from .wiring import build_context_port
@@ -59,6 +62,7 @@ class BriefService:
         port=None,
         store=None,
         staleness_store="default",
+        follow_store="default",
         object_store="default",
         checkpointer="default",
         cache="default",
@@ -82,6 +86,9 @@ class BriefService:
             if staleness_store == "default"
             else staleness_store
         )
+        self.follow_store = (
+            default_follow_store() if follow_store == "default" else follow_store
+        )
         self.object_store = (
             get_object_store() if object_store == "default" else object_store
         )
@@ -95,6 +102,7 @@ class BriefService:
             object_store=self.object_store,
             accounts=self.accounts,
             staleness_store=self.staleness_store,
+            follow_store=self.follow_store,
         )
         self._graph = (
             build_graph(self.runtime, self.checkpointer)
@@ -158,14 +166,20 @@ class BriefService:
             )
             # New material landed: if the account's latest brief is
             # DECIDED, did the facts move under its decision?
+            new_ids = staleness_mod.new_episode_ids(before, episodes)
             staleness_mod.evaluate_after_ingestion(
                 port=self.port,
                 brief_store=self.store,
                 staleness_store=self.staleness_store,
                 account=account,
-                trigger_episode_ids=staleness_mod.new_episode_ids(
-                    before, episodes
-                ),
+                trigger_episode_ids=new_ids,
+            )
+            # …and did the broker answer an open ask?
+            follow_mod.evaluate_after_ingestion(
+                port=self.port,
+                follow_store=self.follow_store,
+                account=account,
+                trigger_episode_ids=new_ids,
             )
             return episodes
 
@@ -174,10 +188,19 @@ class BriefService:
     def list_staleness(self, account_id: str | None = None):
         return self.staleness_store.list(account_id)
 
+    def list_follow_through(self, account_id: str | None = None):
+        return self.follow_store.list(account_id)
+
+    def follow_through_for_brief(self, brief_id: str):
+        return follow_mod.record_for_brief(self.follow_store, brief_id)
+
     def desk_queue(self) -> list:
         """Every account in desk order (see staleness.build_desk_queue)."""
         return staleness_mod.build_desk_queue(
-            self.accounts, self.store, self.staleness_store
+            self.accounts,
+            self.store,
+            self.staleness_store,
+            follow_store=self.follow_store,
         )
 
     # -- briefs ---------------------------------------------------------------
@@ -283,6 +306,30 @@ class BriefService:
             resolved_by_brief=decided.brief_id,
             actor=actor,
         )
+        # A request_info decision opens its follow-through ask,
+        # composed from the decided brief. A brief with nothing
+        # to ask opens no record: the draft is refused and the
+        # refusal is named on the brief's audit trail (the
+        # decision itself stands — the gate is the human's).
+        # (An open ask is NOT closed by this or any decision —
+        # the two watches are independent; the ask closes when
+        # the broker's answers are recognised.)
+        if action == "request_info":
+            try:
+                items = follow_mod.compose_items(decided)
+            except FollowThroughError as exc:
+                decided.audit.append(
+                    AuditEntry(
+                        at=datetime.now(timezone.utc),
+                        event="follow_through_refused",
+                        detail=str(exc),
+                    )
+                )
+                self.store.save(decided)
+            else:
+                follow_mod.open_follow_through(
+                    self.follow_store, decided, items
+                )
         return decided
 
     # -- readiness --------------------------------------------------------------
