@@ -565,6 +565,125 @@ assembly, in code, from provenance the graph already carries:
   pack's support scenario, which derives ACC-001's whole
   grade map by hand from its planted documents.
 
+## The renewal chase — the watch learns to ask
+
+The expiry watch is a warning with no verb attached: it
+names the relied-on facts whose windows are closing, and
+then the desk is on its own — notice the row, remember the
+broker, compose the ask. The follow-through machinery has
+the verb, but it only ever asked off a gate decision, about
+predicates the file *lacked*. The renewal chase
+(`chases.py`) is the join, and it is deliberately small:
+a projection, a send, and no new machinery anywhere else.
+
+- **A projection, not a record.** Chase rows are computed
+  in code from three existing sources — the expiry watch's
+  rows (the only expiry opinion in the system; currency is
+  still `temporal.resolve`'s), the follow-through store,
+  and the brief store — under the same pure-projection
+  discipline as the timeline and the portfolio brief:
+  computing the rows writes nothing, and two computations
+  over the same state agree. The only durable artifact a
+  chase ever creates is the follow-through ask its send
+  opens, which rides migration 0005's table: the record's
+  `origin` (`decision` | `renewal_chase`) and the renewal
+  items' chased-fact fields are payload data on the JSONB
+  record, with defaults that keep pre-chase payloads valid.
+  **No migration** — there is no chase table because there
+  is no chase state the projection cannot recompute.
+- **One row per (account, predicate), five states.** The
+  dedupe key is the account-and-predicate pair — the key
+  asks themselves use, since a follow-through item names
+  its predicate — so all of a predicate's expiring facts
+  (several policies, one predicate) ride one row and one
+  ask. States resolve in a fixed order. **ASKED**: a chase
+  ask for the predicate is open. **LAPSED_UNSENT**: flagged
+  facts exist, at least one lapsed, no chase ever sent —
+  the failure named, not aged out; the state outranks
+  WAITING_ON_BRIEF because the lapse is the news, and the
+  send still works from it (late is not never).
+  **WAITING_ON_BRIEF**: facts are expiring but the account
+  has no brief. **OPEN**: expiring, brief on file, sendable.
+  **SATISFIED**: a chase ask completed and nothing under
+  the predicate is flagged — the row names the document
+  that satisfied it, read off the items' recorded episodes.
+  A fact renewed without any chase simply leaves the watch,
+  and its unsent row leaves with it: the projection never
+  pretends a chase happened that didn't.
+- **The dedupe.** An ask *covers* a predicate while it is
+  open and carries an item naming it. A predicate an open
+  request-info ask covers gets no chase row — the broker is
+  already being asked about that line of the file, and two
+  asks for one predicate is exactly the double-ask the
+  round exists to prevent. The suppression applies to the
+  unsent states only: an ASKED or SATISFIED row is the
+  chase's own live work or history and stays visible even
+  if a decision ask opens later. The send enforces the same
+  rule a second time (rows are a view; the send is the
+  act), refusing by name with the covering ask's id.
+- **The send rides round 4, unchanged.**
+  `send_renewal_chase` is a named human act (an actor is
+  required, as at every gate here). It composes renewal
+  items from the flagged facts — one per fact, carrying
+  the chased fact's id, value, entity, source document,
+  and expiry — and opens the record on the account's
+  **latest brief** through `open_renewal_ask`. The brief
+  attachment is the honest precondition the survey found:
+  asks live on briefs (`open_follow_through` refuses a
+  brief with no decision behind its draft; the chase has
+  its own drafting, but not its own store), so an account
+  with no brief gets the WAITING_ON_BRIEF row and a named
+  refusal — there is no brief-less ask, and the chase
+  invents none. The draft is composed in code in
+  follow-through's idiom: DRAFT-headed, each line naming
+  the fact, its value, the document it stands on, and the
+  day its term ends, asking for the renewal document that
+  restates it. Nothing is sent; there is no send path, as
+  with every ask in this system. The decided brief the ask
+  attaches to is read, never written.
+- **Recognition is the successor rule, once.** A renewal
+  item cannot use the predicate item's recognition — the
+  expiring fact is *already* a current fact, so presence
+  would satisfy the chase with the very fact being chased.
+  Instead the follow-through evaluation answers a renewal
+  item when a successor fact's window **covers the chased
+  fact's end** — `timeline.covering_successor`, the one
+  successor relation, exposed for this read and never
+  re-derived. From there the path is entirely the existing
+  one: the renewal's ingestion triggers the evaluation,
+  the item flips naming the renewal's episode, the record
+  completes when every item lands, the fresh fact
+  supersedes in the graph, the watch row clears (the same
+  covering relation), and this projection reads the
+  completed ask as SATISFIED. A renewal that starts after
+  a gap does not cover, so it does not satisfy: the item
+  stays open and the watch names the lapse with its
+  successor — the gap was real exposure, and both surfaces
+  say so in their own words.
+- **Surfaces, under the standing disciplines.** The desk
+  queue annotates each account's row with its chases
+  (predicate, state, clock) computed alongside the watch;
+  the queue's order never reads them — pinned by building
+  the queue with and without the annotation inputs and
+  comparing orders. The portfolio brief counts **open
+  chases** per account (every state but SATISFIED) on the
+  row beside the thin-fact count, under exactly that
+  discipline: no entry in `PORTFOLIO_WEIGHTS`, no score,
+  no ranking movement — if the desk ever wants chases to
+  rank, the weights are published data and changing them
+  is a separate, deliberate act. The console shows the
+  rows on the queue and a chase card on the account (with
+  the send, for the states that can send), the timeline
+  labels a chase ask's opening as the chase it was, and
+  the API serves `GET /chases` and the send
+  (`POST /accounts/{id}/chases/{predicate}/send`), with
+  refusals as 409s naming their cause. Pinned in
+  `tests/test_chases.py` and the eval pack's renewal chase
+  scenario, which stages the lifecycle, the dedupe, the
+  no-brief refusal, and the lapse — then checks the seeded
+  book, where the desk's whole chase list is ACC-006's two
+  planted lapsed facts.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -572,7 +691,7 @@ assembly, in code, from provenance the graph already carries:
 | Brief records + decisions | PostgreSQL (`briefs`, JSONB payload, numbered migrations + startup runner) | In-memory store (test double) |
 | Citation index | PostgreSQL (`citation_index`, migration 0003) — the episode payloads behind every citation | In-process adapter memory (test-double mode) |
 | Staleness records | PostgreSQL (`staleness_records`, migration 0004) — flags on decided briefs, stored apart from the briefs themselves | In-memory store (test double) |
-| Follow-through records | PostgreSQL (`follow_through_records`, migration 0005) — request-info asks with items, draft, and per-item state, stored apart from the decided briefs | In-memory store (test double) |
+| Follow-through records | PostgreSQL (`follow_through_records`, migration 0005) — request-info asks and renewal-chase asks with items, draft, and per-item state, stored apart from the briefs they ride on | In-memory store (test double) |
 | Review candidates | PostgreSQL (`candidate_facts`, migration 0006) — correspondence assertions awaiting review, beside the citation index that persists them | Adapter memory with the rest of the cited layer |
 | Graph checkpoints | PostgreSQL via the LangGraph Postgres checkpointer | MemorySaver; `CHECKPOINTS=off` → service-state gate |
 | Source documents | S3-compatible object storage (SeaweedFS in compose), key `accounts/<id>/documents/<doc_id>.json` | Not archived (inline only) |
@@ -670,9 +789,10 @@ src/zep_context_agent/
   citations.py     the citation index store (Postgres + in-memory double) + candidate records
   diffing.py       brief diffs: what changed since the previous brief, in code
   staleness.py     the staleness watch + records store + the desk queue
-  followthrough.py request-info asks: composition, drafts, recognition, records store
+  followthrough.py asks (request-info + renewal chase): composition, drafts, recognition, records store
   review.py        the ingestion review gate: the queue read model + text rendering
   timeline.py      the account timeline + the expiry watch (pure read models)
+  chases.py        the renewal chase: watch rows joined to asks — projection, dedupe, the send
   portfolio.py     the morning portfolio brief: signals counted, the book ranked
   support.py       support grading: how well-backed each current fact is (derived at assembly)
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator

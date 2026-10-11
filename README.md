@@ -199,6 +199,40 @@ ingest → screen → assemble → verify → gate
   desk to ignore it. The watch rides on the desk queue's
   rows, so the account working order and its running-out
   facts are on the same screen.
+- **Chase the renewal** — the watch names what is running
+  out; the **renewal chase** turns the naming into the ask.
+  For each account and predicate the watch flags, a chase
+  row stands in one of five states: **OPEN** (expiring, a
+  brief on file, sendable), **WAITING ON BRIEF** (expiring,
+  but no brief exists — an ask attaches to a brief, so there
+  is nothing to send against yet), **ASKED** (the chase was
+  sent and the broker owes the renewal), **SATISFIED** (the
+  renewal landed; the row names the document that carried
+  it), and **LAPSED UNSENT** (the fact lapsed while the
+  chase sat unsent — the failure is named plainly, not aged
+  out, and the chase can still be sent late). Sending a
+  chase is a named human act that opens an ordinary
+  follow-through ask through the same machinery a
+  request-info decision uses — one renewal item per expiring
+  fact, a draft composed in code naming the fact, the paper
+  it stands on, and the day its term ends — attached to the
+  account's latest brief. When the renewal document arrives,
+  the existing recognition answers the item: a successor
+  whose window covers the chased fact's end flips it, the
+  watch clears, the chase reads SATISFIED. A renewal that
+  starts after a gap does not satisfy the chase — the gap
+  was real exposure, and the item stays open saying so. And
+  the dedupe is absolute: a predicate an open request-info
+  ask already covers gets no chase row at all, and a send
+  for it is refused naming the covering ask — the broker is
+  never asked twice about one line of the file. The desk
+  queue annotates each account with its chases (its order
+  never reads them) and the portfolio brief counts open
+  chases per account beside its signals — displayed,
+  unweighted, exactly the discipline the thin-fact count
+  established: if open chases should ever move the ranking,
+  that is a separate, deliberate change to the published
+  weights.
 - **Rank the book** — underwriters work a book, not an
   account, so the morning starts with the **portfolio
   brief**: every account's signals counted in code and
@@ -346,7 +380,18 @@ ACC-001's full grade map against the map derived by hand
 from its planted documents — five thin facts, and the claims
 count uncontested because the quarantined injection never
 became a fact — with the queue and portfolio counts riding
-unweighted, ranking untouched. The golden cases assert the
+unweighted, ranking untouched. A ninth, the **renewal chase
+scenario**, stages the lifecycle end to end: an expiring
+inspection grade raises an OPEN chase with exact day math,
+the send opens the ask through the follow-through machinery
+with a draft naming the fact and its term's end, the renewal
+lands covering the old end and the chase reads SATISFIED
+naming its document; a predicate already covered by an open
+request-info ask raises no row and its send is refused; an
+account with no brief waits and its send is refused by name;
+an unchased account reads LAPSED UNSENT past its window;
+and on the seeded book the desk's whole chase list is
+ACC-006's two planted lapsed facts. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the
