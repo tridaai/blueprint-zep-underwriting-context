@@ -313,6 +313,57 @@ instead of a note in a decision's reason:
   recognised, not when the desk moves on. Both records stay
   truthful, separately.
 
+## Time, visible — the timeline and the expiry watch
+
+The temporal rule answers "what is true as of this date".
+Two read models in `timeline.py` answer the questions around
+it — what does this account's whole history look like, and
+what is about to stop being true:
+
+- **The timeline.** One chronology per account, assembled in
+  code from the port and the record stores: every fact on
+  its validity window (cited; status — `current`,
+  `superseded`, `expired`, `scheduled` — is
+  `temporal.resolve`'s verdict at the timeline's as-of date,
+  not a re-reading of the windows), the episodes that carried
+  them, every gate decision, staleness flags raised and
+  resolved, and follow-through movement (ask opened, item
+  received, ask completed). Same-day ordering is fixed by
+  kind — document, fact, decision, watch, ask — so the
+  chronology is deterministic and diff-able. It is a pure
+  projection: computing it writes nothing, and account
+  scoping is by construction (every read names one account;
+  the near-identical-name trap is pinned against it in tests
+  and in the eval pack). Served at
+  `GET /accounts/{id}/timeline`, rendered in the console's
+  account view, and printable via the CLI's `timeline`
+  command.
+- **The expiry watch.** A desk-level list computed over the
+  facts `resolve` calls current, plus the ones it reports
+  expired. A current fact with a `valid_to` inside the
+  horizon — `EXPIRY_HORIZON_DAYS`, default 45 — is
+  EXPIRING; per (predicate, entity) key, the last fact in
+  force whose window has closed is LAPSED, days remaining
+  negative. The successor rule is a *window* rule, the
+  temporal rule's own relation: a fact whose successor's
+  window covers its `valid_to` (the renewal whose term
+  starts the day the old term ends — the seeded dataset's
+  convention) is neither expiring nor lapsed, at any date.
+  A later fact that starts after a gap does not cover: the
+  lapsed row names it (`successor_exists`, with its start),
+  because the gap itself was real exposure. Facts a
+  successor *replaced* mid-window are history — resolve
+  names their successor — never lapses. Day math runs on an
+  explicit as-of the caller passes (the surfaces default it
+  to today at the service boundary; the eval pins it), so
+  the watch is hermetic under test. It observes only: no
+  brief's notion of current changes because the watch ran.
+  Served at `GET /expiry-watch`, as a view in the console,
+  via the CLI's `watch` command, and as a section on each
+  desk-queue row — the queue's *ordering* is untouched by
+  it; a lapsing policy does not outrank a stale decision,
+  the row simply shows both clocks.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -418,6 +469,7 @@ src/zep_context_agent/
   diffing.py       brief diffs: what changed since the previous brief, in code
   staleness.py     the staleness watch + records store + the desk queue
   followthrough.py request-info asks: composition, drafts, recognition, records store
+  timeline.py      the account timeline + the expiry watch (pure read models)
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off

@@ -141,6 +141,23 @@ ingest → screen → assemble → verify → gate
   request-info decision on a complete file opens no ask — the
   draft is refused, and the refusal is named on the brief's
   audit trail.
+- **See time** — the graph is temporal, so the desk can look
+  at an account's time shape: a **timeline** per account
+  places every fact on its validity window with its citation
+  — current, superseded, expired, not yet in force, by the
+  same temporal rule the brief uses — and interleaves the
+  documents, the gate decisions, the staleness flags, and the
+  ask's movement in one chronology. And an **expiry watch**
+  warns *before* a relied-on fact lapses: a current fact whose
+  window closes within the horizon (45 days by default) reads
+  EXPIRING with its days remaining; the last fact in force
+  for its line, closed with no successor, reads LAPSED. A
+  fact whose renewal is already on file — the successor's
+  window covering its end — never appears on the watch at
+  all: a watch that cries over renewed policies teaches the
+  desk to ignore it. The watch rides on the desk queue's
+  rows, so the account working order and its running-out
+  facts are on the same screen.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -160,6 +177,7 @@ Provider-first: the standard run is your Zep deployment.
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | Optional narrative model, any OpenAI-compatible endpoint (including a self-hosted NVIDIA NIM container or the hosted NIM catalog). No key → deterministic template narrative, labelled as such. |
 | `DATABASE_URL` | PostgreSQL: brief records, the citation index, + LangGraph checkpointer. Unset → in-memory test doubles, and `/readiness` says so. |
 | `REDIS_URL` | Optional. The brief/retrieval cache + ingestion coordination lock (see below). Unset → caching disabled, and `/readiness` says so. |
+| `EXPIRY_HORIZON_DAYS` | Optional. How far ahead the expiry watch warns before a relied-on fact's window closes. Default 45. |
 | `S3_ENDPOINT_URL` / `S3_BUCKET` | Source documents in S3-compatible object storage (SeaweedFS in the compose stack). |
 
 Copy `.env.example` to `.env` and fill in only what you use. If the
@@ -231,8 +249,15 @@ file with two missing predicates and one quarantined note: the
 ask must open with exactly those items, the broker's answers flip
 them one by one as they land, the ask completes and the queue
 signals ready-for-review, and a complete file's ask is refused by
-name. Live runs against a real Zep workspace are opt-in and
-reported, not gated.
+name. A fifth, the **timeline scenario**, stages three accounts
+around the expiry watch: a policy expiring inside the horizon
+must flag with exact day math and cross to LAPSED (negative
+days) unrenewed; a near-identically named neighbour renewed
+before expiry must never flag; a renewal that arrived after a
+gap must be named as the successor on the lapsed row; and the
+timeline must hold every fact exactly once, in order, leaking
+nothing, mutating nothing. Live runs against a real Zep
+workspace are opt-in and reported, not gated.
 
 ## Honest status
 
