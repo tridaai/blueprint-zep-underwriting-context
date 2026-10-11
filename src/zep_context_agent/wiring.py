@@ -16,6 +16,7 @@ rule of this blueprint:
 
 from __future__ import annotations
 
+from .citations import default_citation_index
 from .config import context_backend
 from .errors import ContextNotConfigured
 from .offline_graph import OfflineContextGraph
@@ -24,12 +25,16 @@ from .ports import ContextPort
 
 def build_context_port() -> ContextPort:
     backend = context_backend()
+    # Both profiles persist their cited layer through the same
+    # citation index (Postgres when DATABASE_URL is set, in-process
+    # only otherwise — readiness states which).
+    citation_index = default_citation_index()
     if backend == "offline":
-        return OfflineContextGraph()
+        return OfflineContextGraph(citation_index=citation_index)
     if backend == "zep":
         from .zep_graph import ZepContextGraph
 
-        return ZepContextGraph()
+        return ZepContextGraph(citation_index=citation_index)
     raise ContextNotConfigured(
         f"Unknown CONTEXT_BACKEND={backend!r}. Use 'zep' (the real "
         "Zep Cloud profile) or 'offline' (the labelled local graph)."

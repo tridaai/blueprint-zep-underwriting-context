@@ -257,8 +257,11 @@ class BriefService:
             cache_state = "redis" if self.cache.ping() else "redis UNREACHABLE"
         else:
             cache_state = self.cache.name
+        from .citations import describe_index
+
         return {
             "context_backend": getattr(self.port, "name", "unknown"),
+            "citation_index": describe_index(self.port),
             "cache": cache_state,
             "database": db_state,
             "object_store": (

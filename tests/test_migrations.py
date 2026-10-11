@@ -38,3 +38,4 @@ def test_migrations_cover_extensions_and_briefs():
         combined += path.read_text(encoding="utf-8")
     assert "CREATE EXTENSION IF NOT EXISTS vector" in combined
     assert "CREATE TABLE IF NOT EXISTS briefs" in combined
+    assert "CREATE TABLE IF NOT EXISTS citation_index" in combined

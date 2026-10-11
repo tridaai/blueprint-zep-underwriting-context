@@ -12,9 +12,10 @@ SDK is vendored in. How the mapping works, honestly:
   adapter keeps for what it ingested. An audit-grade brief cannot
   cite a paraphrase: the episode payload *is* the citation record,
   and Zep builds its semantic graph from those same payloads
-  server-side. (A production deployment can persist this index in
-  the blueprint's Postgres store; v1 keeps it in process — see
-  docs/architecture.md.)
+  server-side. The index is an embedded local graph; when a
+  citation index store is wired in (production wiring attaches
+  the Postgres one), it persists there and a restart re-reads the
+  cited layer from the database — see :mod:`citations`.
 - **The context block** is Zep's own: a per-account thread's user
   context, fetched live. If Zep is unreachable the call raises —
   the brief then assembles from cited facts alone and says the
@@ -58,6 +59,7 @@ class ZepContextGraph:
         base_url: str | None = None,
         *,
         client: httpx.Client | None = None,
+        citation_index=None,
     ) -> None:
         self._api_key = api_key if api_key is not None else env_str("ZEP_API_KEY")
         if not self._api_key:
@@ -72,7 +74,12 @@ class ZepContextGraph:
         timeout = env_float("ZEP_TIMEOUT_SECONDS", 30.0)
         self._client = client or httpx.Client(timeout=timeout)
         # The episode-payload index for cited facts (see module docstring).
-        self._index = OfflineContextGraph()
+        self._index = OfflineContextGraph(citation_index=citation_index)
+
+    @property
+    def citation_index(self):
+        """The citation index backing the cited layer, if any."""
+        return self._index.citation_index
 
     # -- HTTP plumbing ------------------------------------------------------
     def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
