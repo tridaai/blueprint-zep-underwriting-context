@@ -107,6 +107,23 @@ the deployment shape — and gates on:
   the portfolio and desk queue carry the counts unweighted —
   scores and order exactly as the portfolio scenario knows
   them. Gate: every check true.
+- **renewal chase scenario** — the expiry watch joined to the
+  ask machinery, staged plus seeded. A staged account's
+  inspection grade expires inside the horizon: a chase row
+  must stand OPEN with exact day math; the send must open an
+  ordinary follow-through ask (origin renewal_chase, a
+  renewal item carrying the chased fact, a draft naming the
+  fact and its term's end); the renewal lands covering the
+  old end, the item flips, the watch clears, the chase reads
+  SATISFIED naming the renewal's document, and the decided
+  brief stays byte-identical. A second staged account's
+  predicate is already covered by an open request-info ask:
+  no chase row, and the send refused — the broker is never
+  asked twice. A third has the expiring fact but no brief:
+  WAITING_ON_BRIEF, the send refused by name, nothing opened.
+  A fourth is never chased and reads LAPSED_UNSENT past its
+  window. On the seeded book the desk's whole chase list is
+  ACC-006's two planted lapsed facts. Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -277,6 +294,7 @@ def run_offline() -> dict:
     review_scenario = run_review_scenario(accounts)
     portfolio_scenario = run_portfolio_scenario(accounts)
     support_scenario = run_support_scenario(accounts)
+    chase_scenario = run_chase_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -292,6 +310,7 @@ def run_offline() -> dict:
         "review_scenario": review_scenario["passed"],
         "portfolio_scenario": portfolio_scenario["passed"],
         "support_scenario": support_scenario["passed"],
+        "chase_scenario": chase_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -312,6 +331,7 @@ def run_offline() -> dict:
         "review_scenario": review_scenario,
         "portfolio_scenario": portfolio_scenario,
         "support_scenario": support_scenario,
+        "chase_scenario": chase_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -2004,6 +2024,319 @@ def run_support_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_chase_scenario(accounts: dict) -> dict:
+    """The renewal chase, staged on scenario accounts + the book.
+
+    ACC-RC's inspection grade expires 2026-06-20: at the
+    present (2026-06-01) a chase row must stand OPEN with exact
+    day math; sending it must open an ordinary follow-through
+    ask — origin renewal_chase, one renewal item carrying the
+    chased fact, a draft naming the fact and the day its term
+    ends; the renewal document then lands with a window
+    covering the old end, the item flips naming its episode,
+    the ask completes, the watch clears, and the chase reads
+    SATISFIED naming the renewal's document — the decided
+    brief byte-identical throughout. ACC-RD's claims predicate
+    is already covered by an open request-info ask: no chase
+    row, and a send is refused naming the covering ask.
+    ACC-RN has the expiring fact but no brief: WAITING_ON_BRIEF,
+    the send refused by name, nothing opened. ACC-RL is never
+    chased: past the window it reads LAPSED_UNSENT with
+    negative days. On the seeded book, ingested whole, the
+    desk's entire chase list is ACC-006's two planted lapsed
+    facts, both LAPSED_UNSENT.
+    """
+    from zep_context_agent.errors import ChaseError
+
+    checks: dict[str, bool] = {}
+    present = date(2026, 6, 1)
+
+    def doc(doc_id, account_id, kind, title, received, assertions=()):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id=account_id,
+            kind=kind,
+            title=title,
+            received_at=received,
+            assertions=list(assertions),
+        )
+
+    def fact(predicate, value, valid_from, valid_to=None, entity_ref="", unit=""):
+        return FactAssertion(
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            entity_ref=entity_ref,
+        )
+
+    def submission(doc_id, account_id, name, omit=()):
+        values = {
+            "legal_name": name,
+            "risk_class": "light manufacturing",
+            "annual_revenue_usd": 5000000,
+            "primary_location": "1 Chase Way, Dayton, OH",
+            "policy_limit_usd": 1000000,
+            "claims_count_3yr": 1,
+        }
+        assertions = [
+            fact(
+                predicate,
+                value,
+                date(2026, 1, 1),
+                unit="USD" if predicate.endswith("_usd") else "",
+            )
+            for predicate, value in values.items()
+            if predicate not in omit
+        ]
+        return doc(
+            doc_id, account_id, "submission",
+            f"Submission 2026 — {name}", date(2026, 5, 20), assertions,
+        )
+
+    def inspection(doc_id, account_id, name, grade, valid_from, valid_to, received):
+        return doc(
+            doc_id, account_id, "inspection",
+            f"Inspection report — {name}", received,
+            assertions=[
+                fact("inspection_grade", grade, valid_from, valid_to, unit="pts")
+            ],
+        )
+
+    def service_for(staged) -> BriefService:
+        return BriefService(
+            port=OfflineContextGraph(),
+            store=InMemoryBriefStore(),
+            object_store=None,
+            checkpointer=MemorySaver(),
+            cache=None,
+            accounts=staged,
+        )
+
+    def rows(service, account_id, as_of=present):
+        return service.renewal_chases(
+            account_id, as_of=as_of, horizon_days=45
+        )
+
+    # -- ACC-RC: the full lifecycle --------------------------------------
+    rc_docs = [
+        submission("DOC-RC-SUB", "ACC-RC", "Renewal Chase Test Co"),
+        inspection(
+            "DOC-RC-INS", "ACC-RC", "Renewal Chase Test Co", 92,
+            date(2025, 6, 15), date(2026, 6, 20), date(2025, 6, 20),
+        ),
+    ]
+    staged_rc = {
+        "ACC-RC": Account(
+            account_id="ACC-RC",
+            display_name="Renewal Chase Test Co",
+            documents=list(rc_docs),
+        )
+    }
+    svc = service_for(staged_rc)
+    svc.ingest("ACC-RC")
+    brief = svc.assemble("ACC-RC", as_of=present)
+    svc.decide(
+        brief.brief_id, action="proceed", actor="Eval Desk",
+        reason="Scenario: the file as it stands.",
+    )
+    snapshot = svc.get_brief(brief.brief_id).model_dump_json()
+
+    rc_rows = rows(svc, "ACC-RC")
+    checks["row_appears_open_with_exact_day_math"] = (
+        len(rc_rows) == 1
+        and rc_rows[0].predicate == "inspection_grade"
+        and rc_rows[0].state == "OPEN"
+        and rc_rows[0].days_remaining == 19
+        and rc_rows[0].facts[0].value == 92
+        and rc_rows[0].facts[0].valid_to == date(2026, 6, 20)
+        and rc_rows[0].brief_id == brief.brief_id
+    )
+    record, row = svc.send_chase(
+        "ACC-RC", "inspection_grade", actor="Eval Desk",
+        as_of=present, horizon_days=45,
+    )
+    graph_fact = next(
+        f
+        for f in svc.port.get_facts("ACC-RC")
+        if f.predicate == "inspection_grade"
+    )
+    checks["send_opens_the_ask_through_the_machinery"] = (
+        row.state == "ASKED"
+        and record.origin == "renewal_chase"
+        and record.brief_id == brief.brief_id
+        and len(record.items) == 1
+        and record.items[0].kind == "renewal"
+        and record.items[0].fact_id == graph_fact.fact_id
+        and record.items[0].expires_on == date(2026, 6, 20)
+        and record.draft_text.startswith("DRAFT")
+        and "Inspection grade" in record.draft_text
+        and "2026-06-20" in record.draft_text
+    )
+    renewal = inspection(
+        "DOC-RC-REN", "ACC-RC", "Renewal Chase Test Co", 95,
+        date(2026, 6, 20), date(2027, 6, 20), date(2026, 6, 10),
+    )
+    staged_rc["ACC-RC"] = Account(
+        account_id="ACC-RC",
+        display_name="Renewal Chase Test Co",
+        documents=rc_docs + [renewal],
+    )
+    svc.ingest("ACC-RC")
+    record = svc.follow_through_for_brief(brief.brief_id)
+    rc_rows = rows(svc, "ACC-RC")
+    checks["renewal_lands_and_the_chase_reads_satisfied"] = (
+        record is not None
+        and record.status == "complete"
+        and record.items[0].received_episode_id == "ep-DOC-RC-REN"
+        and svc.expiry_watch(as_of=present, horizon_days=45) == []
+        and len(rc_rows) == 1
+        and rc_rows[0].state == "SATISFIED"
+        and rc_rows[0].facts[0].satisfied_doc_id == "DOC-RC-REN"
+    )
+    checks["decided_brief_byte_identical"] = (
+        svc.get_brief(brief.brief_id).model_dump_json() == snapshot
+    )
+
+    # -- ACC-RD: the dedupe ------------------------------------------------
+    staged_rd = {
+        "ACC-RD": Account(
+            account_id="ACC-RD",
+            display_name="Renewal Dedupe Test Co",
+            documents=[
+                submission(
+                    "DOC-RD-SUB", "ACC-RD", "Renewal Dedupe Test Co",
+                    omit=("claims_count_3yr",),
+                ),
+                doc(
+                    "DOC-RD-SCH", "ACC-RD", "endorsement",
+                    "Claims schedule — Renewal Dedupe Test Co",
+                    date(2026, 2, 15),
+                    assertions=[
+                        fact(
+                            "claims_count_3yr", 2,
+                            date(2026, 3, 1), date(2026, 6, 20),
+                        )
+                    ],
+                ),
+            ],
+        )
+    }
+    svc_rd = service_for(staged_rd)
+    svc_rd.ingest("ACC-RD")
+    rd_brief = svc_rd.assemble("ACC-RD", as_of=date(2026, 2, 1))
+    svc_rd.decide(
+        rd_brief.brief_id, action="request_info", actor="Eval Desk",
+        reason="Scenario: the claims count, asked for.",
+    )
+    rd_ask = svc_rd.follow_through_for_brief(rd_brief.brief_id)
+    refused = False
+    try:
+        svc_rd.send_chase(
+            "ACC-RD", "claims_count_3yr", actor="Eval Desk",
+            as_of=present, horizon_days=45,
+        )
+    except ChaseError:
+        refused = True
+    checks["covered_predicate_no_row_and_send_refused"] = (
+        rd_ask is not None
+        and rd_ask.status == "open"
+        and rows(svc_rd, "ACC-RD") == []
+        and refused
+        and len(svc_rd.list_follow_through("ACC-RD")) == 1
+    )
+
+    # -- ACC-RN: no brief to attach to --------------------------------------
+    staged_rn = {
+        "ACC-RN": Account(
+            account_id="ACC-RN",
+            display_name="Renewal No Brief Co",
+            documents=[
+                submission("DOC-RN-SUB", "ACC-RN", "Renewal No Brief Co"),
+                inspection(
+                    "DOC-RN-INS", "ACC-RN", "Renewal No Brief Co", 88,
+                    date(2025, 6, 15), date(2026, 6, 20), date(2025, 6, 20),
+                ),
+            ],
+        )
+    }
+    svc_rn = service_for(staged_rn)
+    svc_rn.ingest("ACC-RN")
+    rn_rows = rows(svc_rn, "ACC-RN")
+    refused = False
+    try:
+        svc_rn.send_chase(
+            "ACC-RN", "inspection_grade", actor="Eval Desk",
+            as_of=present, horizon_days=45,
+        )
+    except ChaseError:
+        refused = True
+    checks["no_brief_waits_and_the_send_is_refused"] = (
+        len(rn_rows) == 1
+        and rn_rows[0].state == "WAITING_ON_BRIEF"
+        and refused
+        and svc_rn.list_follow_through("ACC-RN") == []
+    )
+
+    # -- ACC-RL: lapsed, never chased ----------------------------------------
+    staged_rl = {
+        "ACC-RL": Account(
+            account_id="ACC-RL",
+            display_name="Renewal Lapsed Co",
+            documents=[
+                submission("DOC-RL-SUB", "ACC-RL", "Renewal Lapsed Co"),
+                inspection(
+                    "DOC-RL-INS", "ACC-RL", "Renewal Lapsed Co", 90,
+                    date(2025, 6, 15), date(2026, 6, 20), date(2025, 6, 20),
+                ),
+            ],
+        )
+    }
+    svc_rl = service_for(staged_rl)
+    svc_rl.ingest("ACC-RL")
+    rl_brief = svc_rl.assemble("ACC-RL", as_of=present)
+    svc_rl.decide(
+        rl_brief.brief_id, action="proceed", actor="Eval Desk",
+        reason="Scenario: decided, and the chase never sent.",
+    )
+    rl_rows = rows(svc_rl, "ACC-RL", as_of=date(2026, 7, 5))
+    checks["lapsed_unsent_names_the_failure"] = (
+        len(rl_rows) == 1
+        and rl_rows[0].state == "LAPSED_UNSENT"
+        and rl_rows[0].days_remaining == -15
+        and svc_rl.list_follow_through("ACC-RL") == []
+    )
+
+    # -- the seeded book ------------------------------------------------------
+    # The reviewed steady state, as everywhere in this pack:
+    # the desk's review pass is performed first (unconfirmed,
+    # ACC-003's rename and ACC-001's relocation read as
+    # lapsed predecessors — after confirmation their
+    # successors stand and the watch is ACC-006's alone).
+    book = service_for(accounts)
+    for account_id in sorted(accounts):
+        book.ingest(account_id)
+    for account_id in sorted(accounts):
+        for candidate in book.list_candidates(account_id, state="pending"):
+            book.review_candidate(
+                candidate.candidate_id,
+                account_id=account_id,
+                action="confirm",
+                actor="Eval Desk",
+            )
+    book.assemble("ACC-006", as_of=DATASET_PRESENT)
+    desk_rows = book.renewal_chases(as_of=DATASET_PRESENT, horizon_days=45)
+    checks["seeded_book_chases_are_acc006s_two_lapses"] = (
+        len(desk_rows) == 2
+        and {r.predicate for r in desk_rows}
+        == {"inspection_grade", "sprinkler_coverage_pct"}
+        and all(r.account_id == "ACC-006" for r in desk_rows)
+        and all(r.state == "LAPSED_UNSENT" for r in desk_rows)
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -2082,6 +2415,7 @@ def main() -> int:
         ("ingestion review scenario", payload["review_scenario"]),
         ("portfolio scenario", payload["portfolio_scenario"]),
         ("support scenario", payload["support_scenario"]),
+        ("renewal chase scenario", payload["chase_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
