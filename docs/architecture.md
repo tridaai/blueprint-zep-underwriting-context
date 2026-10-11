@@ -249,6 +249,70 @@ test pins exactly that); the cache's own version bump on
 ingestion independently guarantees the stale payload is never
 served as current.
 
+## Request-info follow-through — decisions become tracked asks
+
+A `request_info` decision names what the file lacks. The
+follow-through (`followthrough.py`) makes that a tracked ask
+instead of a note in a decision's reason:
+
+- **Composition.** When the gate records `request_info`, the
+  service composes the ask from the decided brief: one item per
+  missing predicate — named by its underwriter-terms label
+  (`ontology.predicate_label`: "Claims count, last 3 years",
+  never the raw predicate) — and one per quarantined document,
+  named by title with its quarantine reason. The items are
+  stored structured on a `FollowThroughRecord` in its own
+  store (migration 0005), and the broker draft is composed from
+  them as deterministic text, headed DRAFT and carrying the
+  decision's actor, date, and the underwriter's own note. The
+  draft is **never sent — there is no send path**; the API
+  (`GET /briefs/{id}/follow-through`), the console's brief
+  panel, and the CLI's `asks` command show it for the
+  underwriter to copy.
+- **The refusal.** A brief with no missing predicates and no
+  quarantined documents has nothing to ask, and composing its
+  ask raises `FollowThroughError`. The *decision* still
+  records — the gate is the human's, and the ontology's
+  completeness view does not overrule it (an underwriter may
+  want something the ontology does not track) — but no record
+  opens, and the service appends a `follow_through_refused`
+  entry to the decided brief's audit trail naming the reason.
+  "We asked the broker" is never a fiction the record tells.
+- **Recognition.** Evaluation rides the same ingestion hooks
+  as the staleness watch (the service's `ingest`, and the
+  pipeline's ingest step). With new episodes as the trigger
+  set — so a duplicate arrival evaluates nothing — each open
+  record is re-read against one fresh, transient assembly
+  (never stored): a predicate item is `received` when the
+  predicate stands as a current fact there, and the item names
+  the episode the assembly cites for it. A document item is
+  `received` when a non-quarantined episode — not the
+  quarantined episode itself — carries the requested title:
+  the corrected resend, under a new document id. (A resend
+  under the *same* document id cannot count: ingestion is
+  idempotent by document id, making it indistinguishable from
+  a duplicate arrival, and the quarantined episode stands.
+  A still-quarantined "resend" satisfies nothing either.)
+  Status moves `open` → `partially_received` → `complete`,
+  with the completion stamp; per-item states persist across
+  waves, so partial answers are visible as they accumulate.
+- **The desk.** The queue entry for an account carries the ask
+  riding on its latest DECIDED brief — status and received
+  count — whatever the row's own state, and sets
+  `ready_for_review` when the ask is complete, belongs to the
+  latest decided brief, and that brief is still the latest
+  brief. Completion auto-assembles and auto-decides nothing;
+  the underwriter re-assembles and decides as usual.
+- **Independence.** The two watches never write each other.
+  The broker's answers typically do both jobs at once — a
+  missing predicate becoming a value is material under the
+  staleness rule, so completing an ask usually leaves the
+  decision flagged STALE until the fresh decision resolves
+  it — and an open ask is equally untouched by a fresh
+  decision: it closes when the broker's answers are
+  recognised, not when the desk moves on. Both records stay
+  truthful, separately.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -256,6 +320,7 @@ served as current.
 | Brief records + decisions | PostgreSQL (`briefs`, JSONB payload, numbered migrations + startup runner) | In-memory store (test double) |
 | Citation index | PostgreSQL (`citation_index`, migration 0003) — the episode payloads behind every citation | In-process adapter memory (test-double mode) |
 | Staleness records | PostgreSQL (`staleness_records`, migration 0004) — flags on decided briefs, stored apart from the briefs themselves | In-memory store (test double) |
+| Follow-through records | PostgreSQL (`follow_through_records`, migration 0005) — request-info asks with items, draft, and per-item state, stored apart from the decided briefs | In-memory store (test double) |
 | Graph checkpoints | PostgreSQL via the LangGraph Postgres checkpointer | MemorySaver; `CHECKPOINTS=off` → service-state gate |
 | Source documents | S3-compatible object storage (SeaweedFS in compose), key `accounts/<id>/documents/<doc_id>.json` | Not archived (inline only) |
 | **Cache + ingestion locks** | **Redis** (below) | **Disabled — stated, not substituted** |
@@ -352,6 +417,7 @@ src/zep_context_agent/
   citations.py     the citation index store (Postgres + in-memory double)
   diffing.py       brief diffs: what changed since the previous brief, in code
   staleness.py     the staleness watch + records store + the desk queue
+  followthrough.py request-info asks: composition, drafts, recognition, records store
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off

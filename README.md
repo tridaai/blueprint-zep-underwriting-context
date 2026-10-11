@@ -125,6 +125,22 @@ ingest → screen → assemble → verify → gate
   there is no dismiss. The console's **desk queue** shows every
   account in work order: stale decisions first (oldest decision
   first), then briefs awaiting the gate, then clean decisions.
+- **Follow through** — a *request info* decision becomes a
+  tracked ask. The system composes the ask in code from the
+  decided brief: the missing predicates, named the way an
+  underwriter names them ("Claims count, last 3 years", not
+  `claims_count_3yr`), and any quarantined documents the broker
+  should resend cleanly — plus a deterministic draft, headed
+  DRAFT, for the underwriter to copy. Nothing is ever sent;
+  there is no send path. When the broker's replies are
+  ingested, the ask recognises them against a fresh assembly:
+  items flip to *received*, each naming the episode that
+  satisfied it, and the ask completes when every item has
+  landed. The desk queue shows the ask's state throughout and
+  flags the account **READY FOR REVIEW** at completion. A
+  request-info decision on a complete file opens no ask — the
+  draft is refused, and the refusal is named on the brief's
+  audit trail.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -209,8 +225,14 @@ citations), and the **staleness scenario** — a decided account
 whose endorsement lands must flag STALE with the limit's
 supersession as the exact slice, the decided brief byte-identical,
 the desk queue ordering three accounts across the three states,
-and the flag resolving only on a fresh decision. Live runs
-against a real Zep workspace are opt-in and reported, not gated.
+and the flag resolving only on a fresh decision. A fourth, the
+**follow-through scenario**, stages a request-info decision on a
+file with two missing predicates and one quarantined note: the
+ask must open with exactly those items, the broker's answers flip
+them one by one as they land, the ask completes and the queue
+signals ready-for-review, and a complete file's ask is refused by
+name. Live runs against a real Zep workspace are opt-in and
+reported, not gated.
 
 ## Honest status
 
