@@ -32,6 +32,7 @@ from langgraph.types import Command
 from . import cache as cache_mod
 from . import decisions
 from . import followthrough as follow_mod
+from . import review as review_mod
 from . import staleness as staleness_mod
 from .checkpoints import get_checkpointer
 from .datasets import load_accounts
@@ -41,6 +42,7 @@ from .errors import (
     DecisionError,
     FollowThroughError,
     IngestionInProgress,
+    ReviewError,
 )
 from .followthrough import default_follow_store
 from .graph import Runtime, build_graph, run_pipeline
@@ -182,6 +184,106 @@ class BriefService:
                 trigger_episode_ids=new_ids,
             )
             return episodes
+
+    # -- the review gate ----------------------------------------------------
+
+    def list_candidates(
+        self, account_id: str | None = None, state: str | None = None
+    ) -> list:
+        """Candidate facts (see :mod:`review`): one account's, or
+        every account's in account order."""
+        if account_id is not None:
+            return self.port.get_candidates(account_id, state)
+        candidates = []
+        for aid in sorted(self.accounts):
+            candidates.extend(self.port.get_candidates(aid, state))
+        return candidates
+
+    def review_queue(self, account_id: str | None = None) -> list:
+        """The review queue: candidates grouped by document."""
+        return review_mod.build_review_queue(
+            self.port, self.accounts, account_id
+        )
+
+    def review_candidate(
+        self,
+        candidate_id: str,
+        *,
+        account_id: str,
+        action: str,
+        actor: str,
+        reason: str = "",
+    ):
+        """Decide one candidate at the review gate.
+
+        Confirming admits the fact into the graph — and is an
+        arrival: the staleness watch and the follow-through
+        recognition re-run with the candidate's episode as the
+        trigger, exactly as they do for an ingestion (a pending
+        candidate's arrival ran neither, because no brief could
+        see it). Rejecting keeps the record with its reason and
+        changes nothing in the graph."""
+        account = self.get_account(account_id)
+        if action not in ("confirm", "reject"):
+            raise ReviewError(
+                f"Unknown review action {action!r}: confirm or reject."
+            )
+        if not actor or not actor.strip():
+            raise ReviewError("A review decision requires an actor.")
+        if action == "reject" and not (reason and reason.strip()):
+            raise ReviewError(
+                "Rejecting a candidate requires a reason — the "
+                "record is the audit of what the desk refused."
+            )
+        candidate = next(
+            (
+                c
+                for c in self.port.get_candidates(account_id)
+                if c.candidate_id == candidate_id
+            ),
+            None,
+        )
+        if candidate is None:
+            raise ReviewError(
+                f"No candidate {candidate_id!r} on account {account_id}."
+            )
+        if candidate.state != "pending":
+            raise ReviewError(
+                f"Candidate {candidate_id} is already "
+                f"{candidate.state} (by {candidate.review_actor}); "
+                "a decided candidate cannot be decided again."
+            )
+        at = datetime.now(timezone.utc)
+        if action == "confirm":
+            self.port.confirm_candidate(
+                account_id, candidate_id, actor=actor, at=at
+            )
+            staleness_mod.evaluate_after_ingestion(
+                port=self.port,
+                brief_store=self.store,
+                staleness_store=self.staleness_store,
+                account=account,
+                trigger_episode_ids=[candidate.episode_id],
+            )
+            follow_mod.evaluate_after_ingestion(
+                port=self.port,
+                follow_store=self.follow_store,
+                account=account,
+                trigger_episode_ids=[candidate.episode_id],
+            )
+        else:
+            self.port.reject_candidate(
+                account_id,
+                candidate_id,
+                actor=actor,
+                reason=reason,
+                at=at,
+            )
+        return next(
+            c
+            for c in self.port.get_candidates(account_id)
+            if c.candidate_id == candidate_id
+        )
 
     # -- staleness + the desk queue -------------------------------------------
 

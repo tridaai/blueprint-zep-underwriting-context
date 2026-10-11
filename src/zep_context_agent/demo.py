@@ -1,13 +1,17 @@
 """The demo: one synthetic account, end to end, on the offline adapter.
 
-Assembles the brief for ACC-001 (Meridian Casting Co. — the
-account with every trap armed: a limit endorsed down mid-term, a
-relocation, a claims count a broker email tried to wish away) and
-prints it in full: current facts with citations, the superseded
-facts the graph retired, the quarantined source, the verification
-result, and the gate it stops at. It then records a demonstration
-decision so the audit trail — and the decision joining the
-account's history as a new episode — is visible too.
+Walks ACC-001 (Meridian Casting Co. — the account with every trap
+armed: a limit endorsed down mid-term, a relocation, a claims
+count a broker email tried to wish away) through the desk's whole
+path. Ingestion first: the broker's relocation letter arrives as
+correspondence, so its assertion waits at the review gate — the
+demo shows the queue, and the underwriter confirms the relocation
+into the graph. Then the brief, printed in full: current facts
+with citations, the superseded facts the graph retired, the
+quarantined source, the verification result, and the gate it
+stops at. It then records a demonstration decision so the audit
+trail — and the decision joining the account's history as a new
+episode — is visible too.
 
 The demo always runs the labelled offline adapter with in-memory
 stores: it is a smoke run of the assembly rules, not a Zep
@@ -21,6 +25,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from .datasets import DATASET_PRESENT
 from .offline_graph import OfflineContextGraph
+from .ontology import predicate_label
 from .render import render_brief_text
 from .service import BriefService
 from .store import InMemoryBriefStore
@@ -35,6 +40,28 @@ def main() -> int:
         object_store=None,
         checkpointer=MemorySaver(),
     )
+    # The review gate, walked once: ingestion holds the broker's
+    # relocation letter at the gate (the injection email's
+    # assertion never gets even that far — the screen quarantined
+    # it), and the underwriter confirms what the letter asserted.
+    service.ingest(DEMO_ACCOUNT)
+    pending = service.list_candidates(DEMO_ACCOUNT, state="pending")
+    for candidate in pending:
+        print(
+            f"REVIEW GATE: {predicate_label(candidate.predicate)} "
+            f"from \"{candidate.doc_title}\" waits as a candidate — "
+            "correspondence does not enter the graph on its own say-so."
+        )
+        service.review_candidate(
+            candidate.candidate_id,
+            account_id=DEMO_ACCOUNT,
+            action="confirm",
+            actor="Demo Underwriter",
+        )
+        print(
+            "  confirmed by Demo Underwriter — the fact is in the "
+            "graph, stamped with the attestation."
+        )
     brief = service.assemble(DEMO_ACCOUNT, as_of=DATASET_PRESENT)
     print(render_brief_text(brief))
     decided = service.decide(

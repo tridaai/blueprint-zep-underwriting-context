@@ -11,6 +11,9 @@ serves — for operators and for smoke runs:
     zep-context-agent queue
     zep-context-agent timeline ACC-001 [--as-of 2026-06-01]
     zep-context-agent watch [--as-of 2026-06-01] [--horizon-days 45]
+    zep-context-agent review [--account ACC-001]
+    zep-context-agent confirm <candidate_id> --account ACC-001 --actor "…"
+    zep-context-agent reject <candidate_id> --account ACC-001 --actor "…" --reason "…"
 
 Configuration is the environment's (``CONTEXT_BACKEND`` & friends —
 see .env.example). Code defaults to the offline adapter when no
@@ -28,6 +31,7 @@ from .config import load_dotenv
 from .errors import ContextError
 from .followthrough import render_follow_through_text
 from .render import render_brief_text
+from .review import render_review_queue_text
 from .service import BriefService
 from .timeline import render_expiry_watch_text, render_timeline_text
 
@@ -84,6 +88,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_watch.add_argument("--as-of", type=date.fromisoformat, default=None)
     p_watch.add_argument("--horizon-days", type=int, default=None)
+
+    p_review = sub.add_parser(
+        "review",
+        help="The review queue: correspondence assertions waiting "
+        "for an underwriter",
+    )
+    p_review.add_argument("--account", default=None)
+
+    p_confirm = sub.add_parser(
+        "confirm",
+        help="Confirm a candidate into the graph as a fact",
+    )
+    p_confirm.add_argument("candidate_id")
+    p_confirm.add_argument("--account", required=True)
+    p_confirm.add_argument("--actor", required=True)
+
+    p_reject = sub.add_parser(
+        "reject",
+        help="Reject a candidate, with the reason on the record",
+    )
+    p_reject.add_argument("candidate_id")
+    p_reject.add_argument("--account", required=True)
+    p_reject.add_argument("--actor", required=True)
+    p_reject.add_argument("--reason", required=True)
 
     args = parser.parse_args(argv)
     try:
@@ -183,6 +211,32 @@ def main(argv: list[str] | None = None) -> int:
                 print("No follow-through records.")
             for record in records:
                 print(render_follow_through_text(record))
+        elif args.command == "review":
+            print(
+                render_review_queue_text(
+                    service.review_queue(args.account)
+                )
+            )
+        elif args.command in ("confirm", "reject"):
+            candidate = service.review_candidate(
+                args.candidate_id,
+                account_id=args.account,
+                action=args.command,
+                actor=args.actor,
+                reason=getattr(args, "reason", "") or "",
+            )
+            if candidate.state == "confirmed":
+                print(
+                    f"{candidate.candidate_id}: CONFIRMED by "
+                    f"{candidate.review_actor} — {candidate.predicate} "
+                    f"entered the graph, recorded "
+                    f"{candidate.fact_recorded_at}."
+                )
+            else:
+                print(
+                    f"{candidate.candidate_id}: REJECTED by "
+                    f"{candidate.review_actor} — {candidate.review_reason}"
+                )
     except ContextError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

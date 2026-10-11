@@ -16,7 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .ontology import Edge, Episode, FactValue
+from .ontology import CandidateFact, Edge, Episode, FactValue
 
 BriefStatus = Literal[
     "AWAITING_UNDERWRITER", "DECIDED", "VERIFICATION_FAILED"
@@ -408,6 +408,26 @@ class DeskQueueEntry(BaseModel):
     expiry: list[DeskExpiry] = Field(default_factory=list)
 
 
+class ReviewGroup(BaseModel):
+    """One document's candidates in the review queue (see
+    :mod:`review`): the assertions a correspondence document
+    carried, grouped under the document they came from, with
+    the source excerpt the underwriter reads them against.
+    Candidates of every state ride the group — pending work
+    first in the surfaces' concern, with confirmed and rejected
+    records shown as the audit they are."""
+
+    account_id: str
+    account_name: str
+    episode_id: str
+    doc_id: str
+    doc_title: str
+    document_received_at: date
+    excerpt: str = ""
+    candidates: list[CandidateFact] = Field(default_factory=list)
+    pending_count: int = 0
+
+
 # -- API request shapes ------------------------------------------------------
 
 
@@ -420,3 +440,15 @@ class DecisionRequest(BaseModel):
     action: DecisionAction
     actor: str = Field(min_length=1)
     reason: str = Field(min_length=1)
+
+
+class ReviewRequest(BaseModel):
+    """A review-gate decision on one candidate: confirm it into
+    the graph, or reject it onto the audit record. ``reason`` is
+    required for a rejection (the service enforces it — the
+    record is the audit of what the desk refused)."""
+
+    account_id: str
+    action: Literal["confirm", "reject"]
+    actor: str = Field(min_length=1)
+    reason: str = ""

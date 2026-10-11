@@ -99,6 +99,7 @@
   </div>
   <div class="spacer"></div>
   <button class="action secondary" id="btn-watch">Expiry watch</button>
+  <button class="action secondary" id="btn-review">Review queue</button>
   <button class="action secondary" id="btn-queue">Desk queue</button>
   <span class="pill indigo" id="backend-pill">backend: …</span>
   <span class="pill" id="db-pill">…</span>
@@ -339,6 +340,92 @@ async function showWatch() {
   });
 }
 
+async function showReview() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const groups = await api("/review-queue");
+  const el = $("#detail");
+  const pending = groups.reduce((n, g) => n + g.pending_count, 0);
+  let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The review queue</h2>
+    <p class="small">Correspondence arrives as candidates, not facts: assertions extracted from broker letters and emails wait here until an underwriter confirms them into the graph — or rejects them, with the reason on the record. No brief, timeline, or watch reads a candidate. Filed documents and system records are not gated; they enter on arrival.</p>`;
+  if (!groups.length) {
+    html += `<div class="empty">No correspondence assertions on record.</div>`;
+  }
+  if (groups.length && !pending) {
+    html += `<div class="card"><strong>Nothing pending.</strong> <span class="small">Every candidate has been decided; the records below are the audit.</span></div>`;
+  }
+  for (const g of groups) {
+    html += `<div class="card review-group">
+      <div class="row">
+        <strong></strong>
+        <span class="pill">${g.account_id}</span>
+        ${g.pending_count ? `<span class="pill warn">${g.pending_count} PENDING</span>` : `<span class="pill ok">DECIDED</span>`}
+        <span class="small">${g.doc_title} (${g.doc_id}) · received ${g.document_received_at}</span>
+      </div>
+      ${g.excerpt ? `<div class="small" style="margin-top:8px">Source excerpt — untrusted document text:</div><pre class="ctx" data-excerpt></pre>` : ""}
+      <div data-candidates></div>
+    </div>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll(".review-group").forEach((card, gi) => {
+    const g = groups[gi];
+    if (!g) return;
+    card.querySelector("strong").textContent = g.account_name;
+    const excerpt = card.querySelector("[data-excerpt]");
+    if (excerpt) excerpt.textContent = "<<<UNTRUSTED DOCUMENT TEXT>>>\n" + g.excerpt + "\n<<<END UNTRUSTED TEXT>>>";
+    const box = card.querySelector("[data-candidates]");
+    for (const c of g.candidates) {
+      const row = document.createElement("div");
+      row.style.cssText = "border-top:1px solid var(--line);padding:10px 0";
+      const label = document.createElement("div");
+      const win = `valid from ${c.valid_from}${c.valid_to ? " to " + c.valid_to : ""}`;
+      label.innerHTML = `<strong></strong> — ${fmtVal(c.value, c.unit)}${c.entity_ref ? " [" + c.entity_ref + "]" : ""} <span class="small">(${win} · asserted ${c.document_received_at})</span>`;
+      label.querySelector("strong").textContent = c.predicate;
+      row.appendChild(label);
+      if (c.state === "pending") {
+        const controls = document.createElement("div");
+        controls.style.cssText = "margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end";
+        controls.innerHTML = `
+          <label class="small">Actor (required)<br><input type="text" data-actor placeholder="e.g. J. Alvarez, Senior Underwriter"></label>
+          <label class="small">Reason (required to reject)<br><input type="text" data-reason placeholder="Why it is refused"></label>
+          <button class="action" data-confirm>Confirm into the graph</button>
+          <button class="action secondary" data-reject>Reject</button>
+          <span class="small" data-status></span>`;
+        const status = controls.querySelector("[data-status]");
+        const decide = async (action) => {
+          const actor = controls.querySelector("[data-actor]").value.trim();
+          const reason = controls.querySelector("[data-reason]").value.trim();
+          if (!actor) { status.textContent = "An actor is required — the decision is audited."; return; }
+          if (action === "reject" && !reason) { status.textContent = "A rejection requires a reason."; return; }
+          try {
+            await api(`/candidates/${encodeURIComponent(c.candidate_id)}/decision`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ account_id: g.account_id, action, actor, reason }),
+            });
+            showReview();
+          } catch (e) { status.textContent = "Error: " + e.message; }
+        };
+        controls.querySelector("[data-confirm]").onclick = () => decide("confirm");
+        controls.querySelector("[data-reject]").onclick = () => decide("reject");
+        row.appendChild(controls);
+      } else if (c.state === "confirmed") {
+        const note = document.createElement("div");
+        note.className = "small";
+        note.textContent = `CONFIRMED by ${c.review_actor} — in the graph, recorded ${c.fact_recorded_at}.`;
+        row.appendChild(note);
+      } else {
+        const note = document.createElement("div");
+        note.className = "small";
+        note.textContent = `REJECTED by ${c.review_actor} — ${c.review_reason}`;
+        row.appendChild(note);
+      }
+      box.appendChild(row);
+    }
+  });
+}
+
 const EVENT_LABEL = {
   episode: "Document", fact: "Fact", decision: "Decision",
   staleness_flag: "Staleness", staleness_resolved: "Resolved",
@@ -499,6 +586,7 @@ async function init() {
   } catch (e) { /* readiness is informational in the console */ }
   $("#btn-queue").onclick = () => showQueue();
   $("#btn-watch").onclick = () => showWatch();
+  $("#btn-review").onclick = () => showReview();
   await showQueue();
 }
 init();

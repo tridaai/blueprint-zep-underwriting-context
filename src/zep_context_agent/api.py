@@ -47,10 +47,11 @@ from .errors import (
     DecisionError,
     FollowThroughError,
     IngestionInProgress,
+    ReviewError,
 )
 from .observability import configure_json_logging, new_request_id, request_id_ctx
 from .render import render_brief_text
-from .schemas import AssembleRequest, DecisionRequest
+from .schemas import AssembleRequest, DecisionRequest, ReviewRequest
 from .service import BriefService
 
 logger = logging.getLogger("zep_context_agent.api")
@@ -129,6 +130,10 @@ def create_app(service: BriefService | None = None) -> FastAPI:
     def follow_through_handler(
         request: Request, exc: FollowThroughError
     ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(ReviewError)
+    def review_handler(request: Request, exc: ReviewError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(IngestionInProgress)
@@ -273,6 +278,44 @@ def create_app(service: BriefService | None = None) -> FastAPI:
                 ),
             )
         return record.model_dump(mode="json")
+
+    # -- the review gate ---------------------------------------------------------
+
+    @app.get("/review-queue")
+    def review_queue(account_id: str | None = None) -> list[dict]:
+        """The ingestion review queue: correspondence assertions
+        waiting as candidates, grouped by the document they came
+        from, with the source excerpt — plus the decided records
+        (confirmed, rejected) as their audit. Nothing in the
+        queue is a fact until an underwriter confirms it."""
+        return [
+            g.model_dump(mode="json")
+            for g in svc.review_queue(account_id)
+        ]
+
+    @app.post("/candidates/{candidate_id}/decision")
+    def review_decision(candidate_id: str, request: ReviewRequest) -> dict:
+        candidate = svc.review_candidate(
+            candidate_id,
+            account_id=request.account_id,
+            action=request.action,
+            actor=request.actor,
+            reason=request.reason,
+        )
+        payload = candidate.model_dump(mode="json")
+        if candidate.state == "confirmed":
+            fact = next(
+                (
+                    f
+                    for f in svc.port.get_facts(request.account_id)
+                    if f.fact_id == candidate_id
+                ),
+                None,
+            )
+            payload["fact"] = (
+                fact.model_dump(mode="json") if fact is not None else None
+            )
+        return payload
 
     # -- timeline + the expiry watch ---------------------------------------------
 
