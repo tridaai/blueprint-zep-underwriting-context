@@ -1,0 +1,264 @@
+"""FastAPI surface: accounts, ingestion, briefs, the gate, exports.
+
+The API is a thin door over :class:`BriefService` — every rule
+(temporal resolution, quarantine, leakage, the gate) lives in the
+service and its modules, so the console, the CLI, and any HTTP
+client see identical behaviour.
+
+Error honesty, mapped to statuses:
+
+- unknown account / brief → 404;
+- a decision that cannot be recorded (already decided, missing
+  actor or reason) → 409 / 422;
+- a Zep profile that is configured but unreachable → 502, with the
+  adapter's message. There is no code path in which an error is
+  answered by quietly serving the offline graph instead.
+
+``/health`` answers without touching dependencies; ``/readiness``
+reports the real serving mode (context backend, database, object
+store, checkpointer) and 503s when a configured database does not
+answer — a replica that cannot reach its system of record is not
+ready, and says so.
+
+Every request carries an ``X-Request-ID`` (the caller's, when
+sent) and emits one JSON access line (see ``observability.py``).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+
+from .config import load_dotenv
+from .db import database_url, ensure_migrated, ping
+from .errors import (
+    AccountNotFound,
+    BriefNotFound,
+    ContextError,
+    ContextNotConfigured,
+    DecisionError,
+    IngestionInProgress,
+)
+from .observability import configure_json_logging, new_request_id, request_id_ctx
+from .render import render_brief_text
+from .schemas import AssembleRequest, DecisionRequest
+from .service import BriefService
+
+logger = logging.getLogger("zep_context_agent.api")
+
+_STATIC_DIR = Path(__file__).parent / "static"
+_INDEX_HTML = _STATIC_DIR / "index.html"
+_BRAND_DIR = _STATIC_DIR / "brand"
+
+
+def build_service_from_env() -> BriefService:
+    load_dotenv()
+    return BriefService()
+
+
+def create_app(service: BriefService | None = None) -> FastAPI:
+    svc = service if service is not None else build_service_from_env()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        configure_json_logging()
+        if database_url():
+            ensure_migrated()
+            logger.info("startup: migrations current, database configured")
+        else:
+            logger.info("startup: no DATABASE_URL — in-memory test doubles")
+        app.state.service = svc
+        yield
+        logger.info("shutdown: drained")
+
+    app = FastAPI(
+        title="Trida AI Blueprint — Zep Underwriting Context Assembly",
+        description=(
+            "Reference prototype. Synthetic data only. The agent assembles "
+            "and cites an underwriter's account brief from a Zep Context "
+            "Graph and stops at the underwriter's gate; it never prices, "
+            "binds, or declines. Independent Trida AI blueprint — not "
+            "affiliated with or endorsed by Zep."
+        ),
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+    app.state.service = svc
+
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or new_request_id()
+        token = request_id_ctx.set(request_id)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            logger.info(
+                "request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": response.status_code,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "event": "http_request",
+                },
+            )
+            return response
+        finally:
+            request_id_ctx.reset(token)
+
+    @app.exception_handler(AccountNotFound)
+    @app.exception_handler(BriefNotFound)
+    def not_found_handler(request: Request, exc: ContextError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(DecisionError)
+    def decision_handler(request: Request, exc: DecisionError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(IngestionInProgress)
+    def ingestion_handler(
+        request: Request, exc: IngestionInProgress
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(ContextNotConfigured)
+    def not_configured_handler(
+        request: Request, exc: ContextNotConfigured
+    ) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+    @app.exception_handler(ContextError)
+    def context_error_handler(request: Request, exc: ContextError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    def favicon_svg() -> FileResponse:
+        return FileResponse(_BRAND_DIR / "favicon.svg", media_type="image/svg+xml")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon_ico() -> FileResponse:
+        return FileResponse(_BRAND_DIR / "favicon.ico", media_type="image/x-icon")
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> str:
+        return _INDEX_HTML.read_text(encoding="utf-8")
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok", "prototype": "trida-blueprint-zep-underwriting-context"}
+
+    @app.get("/readiness")
+    def readiness() -> JSONResponse:
+        detail = svc.readiness()
+        if database_url() and not ping():
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", **detail},
+            )
+        return JSONResponse(status_code=200, content={"status": "ready", **detail})
+
+    @app.get("/evals/results")
+    def eval_results() -> dict:
+        candidates = [
+            Path(__file__).parent / "data" / "eval_results.json",
+            Path.cwd() / "evals" / "results.json",
+            Path(__file__).resolve().parents[2] / "evals" / "results.json",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return json.loads(candidate.read_text(encoding="utf-8"))
+        raise HTTPException(
+            status_code=404,
+            detail="No eval results yet. Run: python evals/run_evals.py",
+        )
+
+    # -- accounts + ingestion -------------------------------------------------
+
+    @app.get("/accounts")
+    def list_accounts() -> list[dict]:
+        return [
+            {
+                "account_id": a.account_id,
+                "display_name": a.display_name,
+                "documents": len(a.documents),
+            }
+            for a in svc.list_accounts()
+        ]
+
+    @app.get("/accounts/{account_id}")
+    def get_account(account_id: str) -> dict:
+        account = svc.get_account(account_id)
+        return account.model_dump(mode="json")
+
+    @app.post("/accounts/{account_id}/ingest")
+    def ingest(account_id: str) -> dict:
+        episodes = svc.ingest(account_id)
+        return {
+            "account_id": account_id,
+            "episodes": [e.model_dump(mode="json") for e in episodes],
+            "quarantined": [e.doc_id for e in episodes if e.quarantined],
+        }
+
+    # -- briefs + gate ----------------------------------------------------------
+
+    @app.post("/briefs", status_code=201)
+    def assemble(request: AssembleRequest) -> dict:
+        brief = svc.assemble(request.account_id, as_of=request.as_of)
+        return brief.model_dump(mode="json")
+
+    @app.get("/briefs")
+    def list_briefs(account_id: str | None = None) -> list[dict]:
+        return [
+            {
+                "brief_id": b.brief_id,
+                "account_id": b.account_id,
+                "account_name": b.account_name,
+                "as_of": b.as_of.isoformat(),
+                "status": b.status,
+                "decision": b.decision.action if b.decision else None,
+                "created_at": b.created_at.isoformat(),
+            }
+            for b in svc.list_briefs(account_id)
+        ]
+
+    @app.get("/briefs/{brief_id}")
+    def get_brief(brief_id: str) -> dict:
+        return svc.get_brief(brief_id).model_dump(mode="json")
+
+    @app.get("/briefs/{brief_id}/export")
+    def export_brief(brief_id: str, format: str = Query("json")) -> object:
+        brief = svc.get_brief(brief_id)
+        if format == "text":
+            return PlainTextResponse(
+                render_brief_text(brief),
+                media_type="text/plain",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{brief_id}.txt"'
+                },
+            )
+        return brief.model_dump(mode="json")
+
+    @app.post("/briefs/{brief_id}/decision")
+    def decide(brief_id: str, request: DecisionRequest) -> dict:
+        brief = svc.decide(
+            brief_id,
+            action=request.action,
+            actor=request.actor,
+            reason=request.reason,
+        )
+        return brief.model_dump(mode="json")
+
+    return app
+
+
+app = create_app()

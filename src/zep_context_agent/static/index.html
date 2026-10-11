@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zep Underwriting Context Assembly — Trida AI Blueprint</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --ink: #0A0A0A;
+    --muted: #5B5B66;
+    --line: #E4E4EA;
+    --indigo: #4F46E5;
+    --indigo-soft: #EEF0FE;
+    --warn-bg: #FFF7E8;
+    --warn-line: #E8C87A;
+    --bad-bg: #FDECEC;
+    --bad-line: #E89A9A;
+    --ok: #177245;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #FFFFFF; color: var(--ink);
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 28px; border-bottom: 1px solid var(--line);
+  }
+  header img { height: 34px; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  header .spacer { flex: 1; }
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; border: 1px solid var(--line);
+    background: #F7F7FA; color: var(--muted); white-space: nowrap;
+  }
+  .pill.indigo { background: var(--indigo-soft); border-color: #C9CDF5; color: var(--indigo); }
+  .pill.ok { color: var(--ok); border-color: #BFE3CF; background: #EFFAF3; }
+  .pill.warn { background: var(--warn-bg); border-color: var(--warn-line); color: #7A5410; }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 140px); }
+  aside { border-right: 1px solid var(--line); padding: 18px; overflow-y: auto; max-height: calc(100vh - 140px); }
+  aside h2, section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+  .account {
+    width: 100%; text-align: left; background: #fff; border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+    font: inherit;
+  }
+  .account:hover { border-color: var(--indigo); }
+  .account.active { border-color: var(--indigo); background: var(--indigo-soft); }
+  .account .name { font-weight: 600; font-size: 14px; }
+  .account .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  section { padding: 22px 28px; overflow-y: auto; max-height: calc(100vh - 140px); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button.action {
+    background: var(--indigo); color: #fff; border: none; border-radius: 8px;
+    padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.action.secondary { background: #fff; color: var(--indigo); border: 1px solid var(--indigo); }
+  button.action:disabled { opacity: .5; cursor: default; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 18px; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  td.cite { color: var(--muted); font-size: 12.5px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin: 14px 0; }
+  .card.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+  .card.bad { background: var(--bad-bg); border-color: var(--bad-line); }
+  .narrative { font-size: 15px; line-height: 1.55; }
+  .small { font-size: 12.5px; color: var(--muted); }
+  pre.ctx {
+    background: #F7F7FA; border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; white-space: pre-wrap; font-size: 13px; max-height: 260px; overflow: auto;
+  }
+  input[type=text], textarea {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; font: inherit; margin: 4px 0 10px;
+  }
+  .gate-actions { display: flex; gap: 10px; }
+  .gate-actions button { flex: 1; }
+  footer {
+    border-top: 1px solid var(--line); padding: 16px 28px;
+    display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 13.5px;
+  }
+  footer img { height: 24px; }
+  footer a { color: var(--indigo); text-decoration: none; font-weight: 600; }
+  .empty { color: var(--muted); padding: 30px 0; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/static/brand/tridaai-logo.png" alt="Trida AI">
+  <div>
+    <h1>Blueprint — Zep Underwriting Context Assembly</h1>
+    <div class="sub">Account briefs assembled from a context graph: current facts only, every fact cited, superseded shown as superseded — then the underwriter decides.</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill indigo" id="backend-pill">backend: …</span>
+  <span class="pill" id="db-pill">…</span>
+</header>
+
+<main>
+  <aside>
+    <h2>Accounts (synthetic)</h2>
+    <div id="accounts"></div>
+  </aside>
+  <section id="detail">
+    <div class="empty">Pick an account to see its file, ingest it into the context graph, and assemble the underwriter's brief.</div>
+  </section>
+</main>
+
+<footer>
+  <img src="/static/brand/tridaai-logo.png" alt="Trida AI">
+  <span>Built by Trida AI — an independent deployment blueprint. Not affiliated with or endorsed by Zep.</span>
+  <div class="spacer" style="flex:1"></div>
+  <a href="https://trida.ai" target="_blank" rel="noopener">Visit Trida AI →</a>
+  <a href="https://trida.ai/blog?category=blueprints" target="_blank" rel="noopener">View all blueprints →</a>
+</footer>
+
+<script>
+const $ = (sel, el) => (el || document).querySelector(sel);
+let currentAccount = null;
+let currentBrief = null;
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+function fmtVal(v, unit) {
+  let t = (typeof v === "number" && Math.abs(v) >= 1000) ? v.toLocaleString("en-US") : String(v);
+  return unit ? t + " " + unit : t;
+}
+
+async function loadAccounts() {
+  const accounts = await api("/accounts");
+  const box = $("#accounts");
+  box.innerHTML = "";
+  for (const a of accounts) {
+    const b = document.createElement("button");
+    b.className = "account" + (currentAccount === a.account_id ? " active" : "");
+    b.innerHTML = `<div class="name"></div><div class="meta">${a.account_id} · ${a.documents} documents</div>`;
+    b.querySelector(".name").textContent = a.display_name;
+    b.onclick = () => selectAccount(a.account_id);
+    box.appendChild(b);
+  }
+}
+
+async function selectAccount(accountId) {
+  currentAccount = accountId;
+  currentBrief = null;
+  await loadAccounts();
+  const a = await api(`/accounts/${accountId}`);
+  const briefs = await api(`/briefs?account_id=${accountId}`);
+  const el = $("#detail");
+  el.innerHTML = `
+    <div class="row">
+      <h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0;"></h2>
+      <span class="pill">${a.account_id}</span>
+      <span class="pill">${a.documents.length} source documents</span>
+    </div>
+    <p class="small">Ingestion is idempotent — documents become episodes in the account's context graph, screened before anything in them is believed.</p>
+    <div class="row">
+      <button class="action secondary" id="btn-ingest">Ingest into context graph</button>
+      <button class="action" id="btn-assemble">Assemble brief</button>
+      <span class="small" id="ingest-status"></span>
+    </div>
+    <div id="briefs-list"></div>
+    <div id="brief-view"></div>`;
+  el.querySelector("h2").textContent = a.display_name;
+  $("#btn-ingest").onclick = async () => {
+    const s = $("#ingest-status");
+    s.textContent = "ingesting…";
+    try {
+      const r = await api(`/accounts/${accountId}/ingest`, { method: "POST" });
+      s.textContent = `${r.episodes.length} episodes ingested` +
+        (r.quarantined.length ? ` · quarantined: ${r.quarantined.join(", ")}` : "");
+    } catch (e) { s.textContent = "Error: " + e.message; }
+  };
+  $("#btn-assemble").onclick = async () => {
+    const s = $("#ingest-status");
+    s.textContent = "assembling…";
+    try {
+      const brief = await api("/briefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id: accountId }),
+      });
+      s.textContent = "";
+      await selectAccount(accountId);
+      showBrief(brief);
+    } catch (e) { s.textContent = "Error: " + e.message; }
+  };
+  const list = $("#briefs-list");
+  if (briefs.length) {
+    list.innerHTML = "<h2 style='margin-top:22px'>Briefs for this account</h2>";
+    for (const b of briefs.slice().reverse()) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.style.marginBottom = "6px";
+      row.innerHTML = `<span class="pill ${b.status === 'AWAITING_UNDERWRITER' ? 'warn' : 'ok'}">${b.status}</span>
+        <span>${b.brief_id}</span><span class="small">as of ${b.as_of}${b.decision ? " · " + b.decision : ""}</span>`;
+      const btn = document.createElement("button");
+      btn.className = "action secondary";
+      btn.textContent = "Open";
+      btn.onclick = async () => showBrief(await api(`/briefs/${b.brief_id}`));
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+  }
+}
+
+function factRows(facts, superseded) {
+  return facts.map(f => {
+    const outcome = superseded
+      ? (f.reason === "replaced" ? `replaced by ${fmtVal(f.successor_value, f.unit)}` : "expired, no successor")
+      : `from ${f.valid_from}`;
+    return `<tr><td><strong>${f.predicate}</strong>${f.entity_ref ? ` <span class="small">[${f.entity_ref}]</span>` : ""}</td>
+      <td>${fmtVal(f.value, f.unit)}</td><td>${outcome}</td>
+      <td class="cite">${f.doc_title} (${f.doc_id})</td></tr>`;
+  }).join("");
+}
+
+function showBrief(brief) {
+  currentBrief = brief;
+  const el = $("#brief-view");
+  const v = brief.verification || {};
+  let html = `
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">Brief ${brief.brief_id}</h2>
+        <span class="pill ${brief.status === 'AWAITING_UNDERWRITER' ? 'warn' : 'ok'}">${brief.status}</span>
+        <span class="pill">as of ${brief.as_of}</span>
+        <span class="pill">backend: ${brief.backend}</span>
+        <a class="small" href="/briefs/${brief.brief_id}/export?format=text" target="_blank">Export text ↓</a>
+        <a class="small" href="/briefs/${brief.brief_id}/export?format=json" target="_blank">Export JSON ↓</a>
+      </div>
+      <p class="narrative" style="margin-top:12px"></p>
+      <div class="small">Narrative source: ${brief.narrative_source} — prose about the facts, never a source of them.</div>
+    </div>
+    <h2>Current facts (${brief.current_facts.length})</h2>
+    <table><tr><th>Predicate</th><th>Value</th><th>In force</th><th>Citation</th></tr>
+    ${factRows(brief.current_facts, false) || '<tr><td colspan="4" class="small">None resolved.</td></tr>'}</table>
+    <h2>Superseded facts (${brief.superseded_facts.length}) — shown as superseded</h2>
+    <table><tr><th>Predicate</th><th>Was</th><th>Outcome</th><th>Citation</th></tr>
+    ${factRows(brief.superseded_facts, true) || '<tr><td colspan="4" class="small">None.</td></tr>'}</table>`;
+  if (brief.missing_predicates.length) {
+    html += `<div class="card warn"><strong>Not resolved from the file:</strong> ${brief.missing_predicates.join(", ")}. The brief says so instead of guessing.</div>`;
+  }
+  if (brief.quarantined.length) {
+    html += `<div class="card bad"><strong>Quarantined sources</strong> (assertions excluded by the injection screen):<ul>` +
+      brief.quarantined.map(q => `<li>${q.doc_title} (${q.doc_id}) — ${q.reason}</li>`).join("") + "</ul></div>";
+  }
+  if (brief.flags.length) {
+    html += `<div class="card"><strong>Flags</strong><ul id="flags-list"></ul></div>`;
+  }
+  if (brief.context_block) {
+    html += `<h2>Provider context (labelled — not a citation source)</h2><pre class="ctx"></pre>`;
+  } else if (brief.context_block_source === "unavailable") {
+    html += `<div class="card warn">Provider context unavailable — this brief was assembled from cited facts alone.</div>`;
+  }
+  html += `<div class="small">Verification: citations ${v.citations_complete ? "complete" : "INCOMPLETE"} · leakage ${v.leakage_free ? "none" : "FOUND"}${(v.violations || []).length ? " · " + v.violations.join("; ") : ""}</div>`;
+  if (brief.decision) {
+    html += `<div class="card" style="margin-top:14px"><strong>Gate decision:</strong> ${brief.decision.action} by ${brief.decision.actor} — ${brief.decision.reason}</div>`;
+  } else if (brief.status === "AWAITING_UNDERWRITER") {
+    html += `
+    <div class="card" id="gate">
+      <h2>The gate — the underwriter decides</h2>
+      <label class="small">Actor (required)</label>
+      <input type="text" id="gate-actor" placeholder="e.g. J. Alvarez, Senior Underwriter">
+      <label class="small">Reason (required)</label>
+      <textarea id="gate-reason" rows="2" placeholder="Why this decision, in the decider's words"></textarea>
+      <div class="gate-actions">
+        <button class="action" data-action="proceed">Proceed</button>
+        <button class="action secondary" data-action="request_info">Request info</button>
+        <button class="action secondary" data-action="escalate">Escalate</button>
+      </div>
+      <div class="small" id="gate-status" style="margin-top:8px"></div>
+    </div>`;
+  }
+  el.innerHTML = html;
+  el.querySelector(".narrative").textContent = brief.narrative;
+  const ctx = el.querySelector("pre.ctx");
+  if (ctx) ctx.textContent = brief.context_block;
+  const flagsList = el.querySelector("#flags-list");
+  if (flagsList) {
+    for (const f of brief.flags) {
+      const li = document.createElement("li");
+      li.textContent = f;
+      flagsList.appendChild(li);
+    }
+  }
+  const gate = $("#gate");
+  if (gate) {
+    gate.querySelectorAll("button[data-action]").forEach(btn => {
+      btn.onclick = async () => {
+        const actor = $("#gate-actor").value.trim();
+        const reason = $("#gate-reason").value.trim();
+        const s = $("#gate-status");
+        if (!actor || !reason) { s.textContent = "Actor and reason are both required — the decision is audited."; return; }
+        try {
+          const updated = await api(`/briefs/${brief.brief_id}/decision`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: btn.dataset.action, actor, reason }),
+          });
+          showBrief(updated);
+        } catch (e) { s.textContent = "Error: " + e.message; }
+      };
+    });
+  }
+}
+
+async function init() {
+  try {
+    const r = await api("/readiness");
+    $("#backend-pill").textContent = "context backend: " + r.context_backend;
+    $("#db-pill").textContent = "database: " + r.database;
+  } catch (e) { /* readiness is informational in the console */ }
+  await loadAccounts();
+}
+init();
+</script>
+</body>
+</html>
