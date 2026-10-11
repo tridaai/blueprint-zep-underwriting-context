@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-11T17:10:26.819501+00:00",
+  "generated_at": "2026-10-11T17:34:14.777182+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -384,6 +384,23 @@
     },
     "passed": true
   },
+  "staleness_scenario": {
+    "checks": {
+      "queue_before_states": true,
+      "no_flags_before_material_lands": true,
+      "exactly_one_flag": true,
+      "no_other_account_flagged": true,
+      "flag_names_the_decision": true,
+      "flag_names_its_triggers": true,
+      "flag_limit_slice_exact": true,
+      "decided_brief_byte_identical": true,
+      "queue_puts_the_stale_decision_first": true,
+      "resolution_brief_leakage_free": true,
+      "flag_resolved_by_the_fresh_decision": true,
+      "queue_after_resolution": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -391,7 +408,8 @@
     "leakage_sweep_zero": true,
     "citation_completeness": true,
     "brief_diff_scenario": true,
-    "citation_persistence": true
+    "citation_persistence": true,
+    "staleness_scenario": true
   },
   "passed": true
 }

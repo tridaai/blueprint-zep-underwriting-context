@@ -31,6 +31,15 @@ the deployment shape — and gates on:
   citation index; a brand-new adapter over the same index (the
   simulated restart) must read it back and produce a brief whose
   citations are identical to the pre-restart brief's. Gate: exact.
+- **staleness scenario** — three accounts in the desk queue's
+  three states, staged: ACC-001 is decided, then the mid-term
+  endorsement lands and its decision must flag STALE with the
+  limit's supersession as the exact slice, the decided brief
+  byte-identical throughout; ACC-002 waits at the gate; ACC-003
+  is decided and stays clean (a duplicate re-ingestion flags
+  nothing). The queue order is asserted before and after, and
+  the flag resolves only when a fresh brief is decided.
+  Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -172,6 +181,7 @@ def run_offline() -> dict:
 
     diff_scenario = run_diff_scenario(accounts)
     persistence_scenario = run_persistence_scenario(accounts)
+    staleness_scenario = run_staleness_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -181,6 +191,7 @@ def run_offline() -> dict:
         "citation_completeness": citations_ok,
         "brief_diff_scenario": diff_scenario["passed"],
         "citation_persistence": persistence_scenario["passed"],
+        "staleness_scenario": staleness_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -195,6 +206,7 @@ def run_offline() -> dict:
         "sweep": sweep,
         "diff_scenario": diff_scenario,
         "persistence_scenario": persistence_scenario,
+        "staleness_scenario": staleness_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -329,6 +341,140 @@ def run_persistence_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_staleness_scenario(accounts: dict) -> dict:
+    """Decisions go stale: the three-state desk, staged.
+
+    ACC-001 is decided on the pre-endorsement file; the
+    endorsement + relocation letter then land, and the decision
+    must flag STALE — the record naming brief 1, the two trigger
+    episodes, and the limit's supersession as the exact slice —
+    while brief 1 itself stays byte-identical. ACC-002 waits at
+    the gate; ACC-003 is decided and stays clean, duplicate
+    re-ingestion included. The desk queue's order is asserted
+    with the flag open, and the flag resolves only when a fresh
+    brief for ACC-001 is assembled and decided.
+    """
+    checks: dict[str, bool] = {}
+    full = accounts["ACC-001"]
+    held_back = {"DOC-001-END2", "DOC-001-COR"}
+    phase1 = full.model_copy(
+        update={
+            "documents": [
+                d for d in full.documents if d.doc_id not in held_back
+            ]
+        }
+    )
+    staged = {
+        "ACC-001": phase1,
+        "ACC-002": accounts["ACC-002"],
+        "ACC-003": accounts["ACC-003"],
+    }
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=staged,
+    )
+    brief1 = service.assemble("ACC-001", as_of=date(2025, 6, 1))
+    service.decide(
+        brief1.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: decided on the file before the endorsement.",
+    )
+    decided_snapshot = service.get_brief(brief1.brief_id).model_dump_json()
+    service.assemble("ACC-002", as_of=date(2025, 6, 1))
+    brief3 = service.assemble("ACC-003", as_of=date(2025, 6, 1))
+    service.decide(
+        brief3.brief_id,
+        action="request_info",
+        actor="Eval Gate",
+        reason="Scenario: a clean decision nothing lands on.",
+    )
+
+    def states() -> dict:
+        return {e.account_id: e.state for e in service.desk_queue()}
+
+    before = states()
+    checks["queue_before_states"] = (
+        before.get("ACC-001") == "decided"
+        and before.get("ACC-002") == "awaiting"
+        and before.get("ACC-003") == "decided"
+    )
+    checks["no_flags_before_material_lands"] = service.list_staleness() == []
+
+    staged["ACC-001"] = full  # the endorsement + relocation land
+    service.ingest("ACC-001")
+    service.ingest("ACC-003")  # a duplicate arrival: flags nothing
+
+    records = service.list_staleness("ACC-001")
+    checks["exactly_one_flag"] = len(records) == 1
+    checks["no_other_account_flagged"] = (
+        service.list_staleness("ACC-002") == []
+        and service.list_staleness("ACC-003") == []
+    )
+    if records:
+        record = records[0]
+        checks["flag_names_the_decision"] = (
+            record.brief_id == brief1.brief_id
+            and record.decision_action == "proceed"
+            and record.decision_actor == "Eval Gate"
+        )
+        checks["flag_names_its_triggers"] = set(
+            record.trigger_episode_ids
+        ) == {"ep-DOC-001-END2", "ep-DOC-001-COR"}
+        limits = [
+            c for c in record.changes.superseded
+            if c.predicate == "policy_limit_usd"
+        ]
+        checks["flag_limit_slice_exact"] = (
+            len(limits) == 1
+            and limits[0].previous_value == 5000000
+            and limits[0].current_value == 2500000
+            and not any(
+                f.predicate == "policy_limit_usd"
+                for f in record.changes.added + record.changes.removed
+            )
+        )
+    checks["decided_brief_byte_identical"] = (
+        service.get_brief(brief1.brief_id).model_dump_json()
+        == decided_snapshot
+    )
+    queue = service.desk_queue()
+    checks["queue_puts_the_stale_decision_first"] = (
+        [e.account_id for e in queue] == ["ACC-001", "ACC-002", "ACC-003"]
+        and queue[0].state == "decided_stale"
+        and queue[0].staleness is not None
+        and queue[0].staleness.brief_id == brief1.brief_id
+    )
+
+    brief2 = service.assemble("ACC-001", as_of=date.today())
+    facts = service.port.get_facts("ACC-001")
+    checks["resolution_brief_leakage_free"] = (
+        guardrails.brief_violations(brief2, facts) == []
+    )
+    service.decide(
+        brief2.brief_id,
+        action="proceed",
+        actor="Eval Gate",
+        reason="Scenario: decided again, on current facts.",
+    )
+    if records:
+        resolved = service.list_staleness("ACC-001")[0]
+        checks["flag_resolved_by_the_fresh_decision"] = (
+            resolved.resolved_by_brief == brief2.brief_id
+        )
+    after = states()
+    checks["queue_after_resolution"] = (
+        after.get("ACC-001") == "decided"
+        and after.get("ACC-002") == "awaiting"
+        and after.get("ACC-003") == "decided"
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -401,6 +547,7 @@ def main() -> int:
     for label, scenario in (
         ("brief diff scenario", payload["diff_scenario"]),
         ("citation persistence", payload["persistence_scenario"]),
+        ("staleness scenario", payload["staleness_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
