@@ -13,7 +13,11 @@ no model touches it:
 4. Report what could not be resolved: the ontology's expected
    predicates with no current fact are listed as missing. The
    brief says "not in the file" instead of guessing.
-5. Fetch the provider's own context block and label it as such.
+5. Grade each current fact's support (see :mod:`support`): the
+   tier of its citing document, the independent documents that
+   corroborate it, whether an earlier value was displaced. The
+   grade rides the fact; it decides nothing.
+6. Fetch the provider's own context block and label it as such.
    It is context for the reader, never a citation source. If the
    provider cannot serve it, the brief assembles from cited facts
    alone and says so — on the Zep profile an unreachable Zep is a
@@ -36,9 +40,11 @@ from .schemas import (
     AuditEntry,
     Brief,
     CitedFact,
+    FactSupport,
     QuarantineNote,
     SupersededFact,
 )
+from .support import assess_support
 from .temporal import resolve
 
 
@@ -60,7 +66,7 @@ def assemble_brief(
     episode_by_id = {e.episode_id: e for e in episodes}
     doc_titles = {d.doc_id: d.title for d in account.documents}
 
-    def cite(fact: Fact) -> CitedFact:
+    def cite(fact: Fact, support: FactSupport | None = None) -> CitedFact:
         episode = episode_by_id.get(fact.episode_id)
         return CitedFact(
             predicate=fact.predicate,
@@ -73,19 +79,21 @@ def assemble_brief(
             doc_id=fact.doc_id,
             doc_title=doc_titles.get(fact.doc_id, episode.title if episode else ""),
             recorded_at=fact.recorded_at,
+            support=support,
         )
 
     current, superseded = resolve(facts, as_of)
+    supports = assess_support(facts, as_of, doc_titles)
     brief = Brief(
         brief_id=brief_id or f"brief-{uuid.uuid4().hex[:12]}",
         account_id=account_id,
         account_name=account.display_name,
         as_of=as_of,
         backend=getattr(port, "name", "unknown"),
-        current_facts=[cite(f) for f in current],
+        current_facts=[cite(f, supports.get(f.fact_id)) for f in current],
         superseded_facts=[
             SupersededFact(
-                **cite(old).model_dump(),
+                **cite(old).model_dump(exclude={"support"}),
                 successor_value=successor.value if successor else None,
                 successor_doc_id=successor.doc_id if successor else "",
                 reason="replaced" if successor else "expired",
@@ -140,7 +148,8 @@ def assemble_brief(
             detail=(
                 f"{len(brief.current_facts)} current fact(s), "
                 f"{len(brief.superseded_facts)} superseded, "
-                f"backend={brief.backend}"
+                f"{sum(1 for s in supports.values() if s.grade == 'THIN')} "
+                f"grading thin, backend={brief.backend}"
             ),
         )
     )

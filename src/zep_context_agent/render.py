@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .ontology import FactValue
 from .schemas import Brief
+from .support import GRADE_LEGEND
 
 
 def _value(value: FactValue, unit: str) -> str:
@@ -36,11 +37,52 @@ def render_brief_text(brief: Brief) -> str:
         lines.append("  (none resolved)")
     for fact in brief.current_facts:
         ref = f" [{fact.entity_ref}]" if fact.entity_ref else ""
+        grade = (
+            f" [support: {fact.support.grade}]"
+            if fact.support is not None
+            else ""
+        )
         lines.append(
             f"  - {fact.predicate}{ref}: {_value(fact.value, fact.unit)} "
             f"(in force from {fact.valid_from.isoformat()}) "
             f"[source: {fact.doc_title} ({fact.doc_id}), "
-            f"recorded {fact.recorded_at.isoformat()}]"
+            f"recorded {fact.recorded_at.isoformat()}]{grade}"
+        )
+    lines.append("")
+    lines.append("SOFT SPOTS — THIN SUPPORT, VERIFY BEFORE RELYING")
+    lines.append(f"  Support grades: {GRADE_LEGEND}")
+    thin = [
+        f for f in brief.current_facts
+        if f.support is not None and f.support.grade == "THIN"
+    ]
+    if brief.current_facts and all(
+        f.support is None for f in brief.current_facts
+    ):
+        # A brief stored before grading existed: its record is
+        # never rewritten to add grades, and the section must
+        # not claim a verdict nobody computed.
+        lines.append(
+            "  Not graded — this brief was assembled before "
+            "support grading; assemble a fresh brief to grade it."
+        )
+    elif not thin:
+        lines.append(
+            "  None — every current fact grades STANDARD or STRONG."
+        )
+    for fact in thin:
+        support = fact.support
+        ref = f" [{fact.entity_ref}]" if fact.entity_ref else ""
+        why = "; ".join(support.reasons)
+        if support.contested:
+            why += (
+                f" (replaced {_value(support.contested_value, fact.unit)}"
+                f" — {support.contested_doc_title} "
+                f"({support.contested_doc_id}))"
+            )
+        lines.append(
+            f"  - {fact.predicate}{ref}: {_value(fact.value, fact.unit)} "
+            f"— {why} "
+            f"[source: {fact.doc_title} ({fact.doc_id})]"
         )
     lines.append("")
     lines.append("SUPERSEDED FACTS (shown as superseded — not current)")

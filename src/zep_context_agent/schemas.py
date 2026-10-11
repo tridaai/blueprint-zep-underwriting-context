@@ -25,6 +25,29 @@ BriefStatus = Literal[
 DecisionAction = Literal["proceed", "request_info", "escalate"]
 
 
+class FactSupport(BaseModel):
+    """How well-backed one current fact is (see :mod:`support`).
+
+    Computed in code at assembly from the fact's provenance:
+    the origin tier of its citing document, how many independent
+    documents (distinct documents — never re-ingestions) carry
+    an in-force assertion agreeing with it, and whether it
+    displaced an earlier, different value (``contested`` — the
+    displaced value and its document are named, so the brief
+    can say what the current value replaced). A grade is
+    information for the underwriter: it feeds no gate, no
+    staleness rule, no follow-through state."""
+
+    grade: Literal["STRONG", "STANDARD", "THIN"]
+    tier: str  # the citing document's origin tier (round 6)
+    supporting_documents: int
+    contested: bool = False
+    contested_value: FactValue | None = None
+    contested_doc_id: str = ""
+    contested_doc_title: str = ""
+    reasons: list[str] = Field(default_factory=list)
+
+
 class CitedFact(BaseModel):
     """A current fact plus the citation an underwriter can check."""
 
@@ -38,6 +61,10 @@ class CitedFact(BaseModel):
     doc_id: str
     doc_title: str
     recorded_at: date
+    # The support grade (see :mod:`support`), computed at
+    # assembly. ``None`` on briefs stored before grading
+    # existed — the record is never rewritten to add one.
+    support: FactSupport | None = None
 
 
 class SupersededFact(BaseModel):
