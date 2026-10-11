@@ -112,6 +112,19 @@ ingest → screen → assemble → verify → gate
   facts added, facts superseded (old value → the value that
   stands now), facts removed (named, never silently gone), and
   decisions recorded in between. A first brief says so plainly.
+- **Watch** — decisions go stale, and the desk finds out. When
+  new material is ingested for an account whose latest brief is
+  DECIDED, the current fact set is diffed against the facts that
+  decision rested on. A material change — a carried fact
+  superseded or removed, or a value arriving for a predicate the
+  brief used or reported missing — raises a staleness record:
+  the decision it refers to, the episodes that triggered it, and
+  the change slice. The decided brief itself is never edited;
+  the flag lives apart from it, and it clears only when an
+  underwriter re-assembles and decides again on current facts —
+  there is no dismiss. The console's **desk queue** shows every
+  account in work order: stale decisions first (oldest decision
+  first), then briefs awaiting the gate, then clean decisions.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -187,13 +200,17 @@ The golden pack runs offline and gates on: **brief correctness**
 superseded section), **citation completeness** (every current fact
 cited), and **leakage — zero tolerance**: any fact from another
 account, including the near-identically named trap account, fails
-the pack outright. Two scenario gates ride along: the **brief
+the pack outright. Three scenario gates ride along: the **brief
 diff** over the planted mid-term endorsement (the limit's change
-must appear in the diff as exactly 5,000,000 → 2,500,000) and
+must appear in the diff as exactly 5,000,000 → 2,500,000),
 **citation persistence** across a simulated restart (a fresh
 adapter over the same citation index produces identical
-citations). Live runs against a real Zep workspace are opt-in and
-reported, not gated.
+citations), and the **staleness scenario** — a decided account
+whose endorsement lands must flag STALE with the limit's
+supersession as the exact slice, the decided brief byte-identical,
+the desk queue ordering three accounts across the three states,
+and the flag resolving only on a fresh decision. Live runs
+against a real Zep workspace are opt-in and reported, not gated.
 
 ## Honest status
 

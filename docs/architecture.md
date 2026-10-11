@@ -182,12 +182,80 @@ covers the diff exactly as it covers the facts (a test pins the
 pair together), and the gate's resume path preserves it on the
 decided brief.
 
+## Staleness — decisions go stale
+
+A gate decision is a statement about the facts as they stood.
+When new material lands afterwards, the decision does not change
+— but its ground may have. The staleness watch (`staleness.py`)
+exists to say so, in code, on a record of its own:
+
+- **Evaluation points.** Every ingestion through the service —
+  the ingest endpoint, and the pipeline's ingest step, which
+  every assembly traverses — snapshots the account's episode ids
+  before and after. Episodes that were not there before are the
+  triggers; ingestion is idempotent, so re-ingesting the file
+  that was already there yields no triggers and is skipped
+  without evaluating. A duplicate arrival cannot flag.
+- **The comparison.** When the account's latest brief is
+  DECIDED, the account's facts are resolved as of today into a
+  transient brief (assembled, never stored) and diffed against
+  the decided brief with the same `compute_diff` the brief
+  diffs use. The decided brief is read, never written — a test
+  pins it byte-identical across a flagging.
+- **Materiality** is one function (`material_slice`). A change
+  is material when a fact the decided brief carried as current
+  was superseded or removed, or a new current fact appears on a
+  predicate the brief *used* — one of its current facts'
+  predicates, or a predicate it reported missing ("not in the
+  file" becoming a value is precisely the news a decision
+  wants). Two exclusions: the `underwriter_decision` predicate
+  never counts (it is the gate's own bookkeeping — a decision
+  must not stale itself over its own memo), and a new fact on a
+  predicate the brief never touched does not flag alone (every
+  ontology-expected predicate is by construction either
+  current or missing in a brief, so "untouched" means outside
+  the brief's vocabulary). A quarantined document's assertions
+  never become facts, so its arrival cannot flag either.
+- **The record.** A material change writes a `StalenessRecord`
+  to its own store (migration 0004): the decision it refers to
+  (brief, action, actor, time), the trigger episode ids, and
+  the material slice. If more material lands while the flag is
+  open, its episodes join the trigger list; the slice stays the
+  one that raised the flag.
+- **Resolution** is the gate, again: re-assemble and record a
+  fresh decision, and the service stamps the account's open
+  records `resolved_by_brief` with the new brief's id. There is
+  deliberately **no dismiss** — a stale flag clears when an
+  underwriter has decided on current facts, not when someone
+  acknowledges it. (A dismiss-with-reason was considered: it
+  would let the queue look clean while a decision still rests
+  on superseded facts, which is the failure this watch exists
+  to prevent. If a deployment truly needs one, it belongs in
+  the carrier's workflow system, not in the flag's semantics.)
+
+The **desk queue** (`GET /desk-queue`, the console's home view,
+the CLI's `queue` command) is a read model over briefs and
+staleness records: stale decisions first — oldest decision
+first, it has rested on wrong facts the longest — then briefs
+awaiting the gate (oldest first), then clean decisions (most
+recent first), then accounts with no brief. Each stale row
+carries the flag's age, its triggers, and the change slice. The
+queue decides nothing and mutates nothing.
+
+Evaluation reads the ContextPort and the brief store directly —
+never the brief cache — so a flag appears even when the decided
+brief was cache-served minutes before the material landed (a
+test pins exactly that); the cache's own version bump on
+ingestion independently guarantees the stale payload is never
+served as current.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
 |---|---|---|
 | Brief records + decisions | PostgreSQL (`briefs`, JSONB payload, numbered migrations + startup runner) | In-memory store (test double) |
 | Citation index | PostgreSQL (`citation_index`, migration 0003) — the episode payloads behind every citation | In-process adapter memory (test-double mode) |
+| Staleness records | PostgreSQL (`staleness_records`, migration 0004) — flags on decided briefs, stored apart from the briefs themselves | In-memory store (test double) |
 | Graph checkpoints | PostgreSQL via the LangGraph Postgres checkpointer | MemorySaver; `CHECKPOINTS=off` → service-state gate |
 | Source documents | S3-compatible object storage (SeaweedFS in compose), key `accounts/<id>/documents/<doc_id>.json` | Not archived (inline only) |
 | **Cache + ingestion locks** | **Redis** (below) | **Disabled — stated, not substituted** |
@@ -283,6 +351,7 @@ src/zep_context_agent/
   decisions.py     the gate decision + decision-memo write-back
   citations.py     the citation index store (Postgres + in-memory double)
   diffing.py       brief diffs: what changed since the previous brief, in code
+  staleness.py     the staleness watch + records store + the desk queue
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off
