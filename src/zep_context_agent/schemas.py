@@ -689,6 +689,139 @@ class ReviewGroup(BaseModel):
     pending_count: int = 0
 
 
+class DuplicateSide(BaseModel):
+    """One account's identity evidence in a duplicate pair
+    (see :mod:`duplicates`): its CURRENT facts — legal name,
+    primary location, risk class, annual revenue — resolved
+    by the temporal rule as of the watch's date, and its
+    broker of record off its own paper. Every value is the
+    account's own; a side carries nothing from any other
+    account."""
+
+    account_id: str
+    account_name: str  # the account record's display name
+    legal_name: str
+    primary_location: str = ""
+    risk_class: str = ""
+    annual_revenue_usd: float | None = None
+    broker_id: str | None = None  # None: no broker on the paper
+    broker_name: str = ""  # "Unattributed" when broker_id is None
+
+
+class DuplicateCorroborator(BaseModel):
+    """One corroborating signal between two accounts: the
+    kind, its strength (``strong`` corroborates alone;
+    ``weak`` needs a second weak beside it), and the detail
+    an underwriter reads — the shared value, or both values
+    where the signal is a nearness."""
+
+    kind: Literal[
+        "same_location",
+        "same_broker",
+        "same_risk_class_close_revenue",
+        "same_state",
+        "same_risk_line",
+    ]
+    strength: Literal["strong", "weak"]
+    detail: str
+
+
+class DuplicateVerdictRecord(BaseModel):
+    """A named underwriter's verdict on one flagged pair —
+    an append-only governed record in its own store (see
+    :mod:`duplicates`), never an edit to either account.
+
+    ``fingerprint`` is the pair's evidence fingerprint at
+    the moment of the verdict: the hash of exactly what the
+    underwriter was shown. A DISTINCT verdict suppresses the
+    pair only while the pair's current fingerprint still
+    equals it — if the underlying facts change materially,
+    the fingerprint moves and the pair re-flags as a new
+    flag. A SAME_INSURED verdict answers an identity
+    question, not an evidence one: it stands while the pair
+    still flags, and it changes nothing operational — no
+    merge, no fact movement; the desk merges accounts in
+    their system of record, not here."""
+
+    record_id: str
+    account_a: str
+    account_b: str
+    verdict: Literal["SAME_INSURED", "DISTINCT"]
+    actor: str
+    note: str  # SAME_INSURED: the note; DISTINCT: the
+    # distinguishing fact the underwriter stated
+    fingerprint: str
+    recorded_at: datetime
+
+
+class DuplicatePair(BaseModel):
+    """One candidate pair on the duplicate watch: the two
+    accounts (ids in sorted order), the name similarity the
+    published rule computed, the corroborators that fired,
+    both sides' evidence, and the pair's standing — computed
+    on read from the current facts and the verdict store,
+    never stored as a judgement.
+
+    ``state`` is ``FLAGGED`` (no standing verdict — or a
+    DISTINCT verdict whose evidence has since changed,
+    ``reflagged``), ``CONFIRMED_SAME`` (the latest verdict
+    is SAME_INSURED), or ``DISTINCT`` (the latest verdict is
+    DISTINCT and its fingerprint still matches the pair's
+    current evidence: suppressed). ``verdict`` carries the
+    latest verdict record whenever one exists."""
+
+    account_a: str
+    account_b: str
+    name_similarity: float
+    threshold: float
+    corroborators: list[DuplicateCorroborator] = Field(default_factory=list)
+    sides: list[DuplicateSide] = Field(default_factory=list)
+    fingerprint: str
+    state: Literal["FLAGGED", "CONFIRMED_SAME", "DISTINCT"]
+    reflagged: bool = False
+    verdict: DuplicateVerdictRecord | None = None
+
+
+class DuplicateWatch(BaseModel):
+    """The duplicate watch (see :mod:`duplicates`): every
+    candidate pair on the book as of a stated date, under the
+    published rule printed on its face. A pure projection
+    over the port and the verdict store — building it writes
+    nothing, merges nothing, and moves no fact."""
+
+    as_of: date
+    threshold: float
+    rule: str
+    pairs: list[DuplicatePair] = Field(default_factory=list)
+
+
+class ConfirmedDuplicatePair(BaseModel):
+    """One confirmed duplicate pair, as the portfolio brief
+    names it: the two accounts and the verdict that confirmed
+    them — the underwriter's name and the record's id, so the
+    annotation is auditable back to the governed act."""
+
+    account_a: str
+    account_b: str
+    account_a_name: str
+    account_b_name: str
+    record_id: str  # the SAME_INSURED verdict record
+    actor: str  # the underwriter who recorded it
+
+
+class DuplicateAnnotation(BaseModel):
+    """The portfolio brief's duplicate annotation (see
+    :mod:`duplicates`): the confirmed SAME_INSURED pairs,
+    counted and named. ``account_count`` counts distinct
+    accounts standing in any confirmed pair. Unverdicted
+    flags never appear here — an unproven suspicion does not
+    print as fact."""
+
+    pair_count: int = 0
+    account_count: int = 0
+    pairs: list[ConfirmedDuplicatePair] = Field(default_factory=list)
+
+
 class PortfolioSignals(BaseModel):
     """One account's signal counts for the morning portfolio
     brief (see :mod:`portfolio`). Every count is read from the
@@ -749,6 +882,14 @@ class PortfolioBrief(BaseModel):
     horizon_days: int
     weights: dict[str, int]
     rows: list[PortfolioRow] = Field(default_factory=list)
+    # Confirmed duplicate pairs (see :mod:`duplicates`): the
+    # accounts a named underwriter has verdicted SAME_INSURED,
+    # named at the brief level. An annotation on the brief,
+    # never a row change — every row above, its score, and
+    # the weights are exactly what they would be if no pair
+    # had ever been confirmed; the double-count is reported,
+    # not silently corrected. Empty until a verdict exists.
+    duplicates: DuplicateAnnotation = Field(default_factory=DuplicateAnnotation)
 
 
 class BrokerAskItem(BaseModel):
@@ -954,6 +1095,20 @@ class ChaseSendRequest(BaseModel):
     the sender's name, and the record carries it."""
 
     actor: str = Field(min_length=1)
+
+
+class DuplicateVerdictRequest(BaseModel):
+    """A verdict on one flagged duplicate pair: the pair (in
+    either order — the record stores them sorted), the
+    verdict, the named underwriter, and the note the record
+    requires — for DISTINCT, the distinguishing fact stated;
+    for SAME_INSURED, the note the desk merges on."""
+
+    account_a: str
+    account_b: str
+    verdict: Literal["SAME_INSURED", "DISTINCT"]
+    actor: str = Field(min_length=1)
+    note: str = Field(min_length=1)
 
 
 class ReviewRequest(BaseModel):

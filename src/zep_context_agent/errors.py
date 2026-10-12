@@ -94,6 +94,18 @@ class ReviewError(ContextError):
     edited by a refused action."""
 
 
+class DuplicateError(ContextError):
+    """A duplicate-pair verdict that cannot be recorded.
+
+    Recording a verdict on a pair the watch does not flag on
+    current facts — the accounts are the same account, an
+    account is unknown, the pair's names and corroborators do
+    not meet the published rule — or a verdict without the
+    named underwriter or the note the record requires, raises
+    this error with the cause named. A refused verdict records
+    nothing (see duplicates.py)."""
+
+
 class DecisionBookError(ContextError):
     """A decision book that cannot be composed as asked.
 
