@@ -233,6 +233,41 @@ ingest → screen → assemble → verify → gate
   established: if open chases should ever move the ranking,
   that is a separate, deliberate change to the published
   weights.
+- **Decide the renewal** — a returning account is not a new
+  account, and its next brief can be assembled *as a renewal*
+  (an explicit mode — `mode: "renewal"` on the API, a flag on
+  the CLI, a button in the console; standard assembly is
+  unchanged by the mode's existence). A renewal brief carries
+  three things a standard brief does not. The **baseline**:
+  the account's last gate decision, quoted from its record —
+  which brief, decided when, by whom, the action, the
+  rationale. The **change ledger** since that decision,
+  computed in code over the two briefs' stored payloads:
+  facts new since, facts superseded (the value the decision
+  rested on handed off to the value standing now, both
+  documents cited), facts lapsed since (current at the
+  decision, gone now), and the facts that stand exactly as
+  decided — counted, not listed, because the ledger is about
+  change. And the **open business inherited**: the asks still
+  waiting on the broker and the staleness flags still open,
+  named with their states — named, not touched: assembling a
+  renewal answers nothing, closes nothing, resolves nothing.
+  The renewal ends at the same gate, and its decision is a
+  fresh decision on the new brief — the baseline decision is
+  context, never carried — with the baseline named on the
+  renewal's own record, so the chain account → decision →
+  renewal → decision walks from the records alone. Staleness
+  treats that decision like any other: it resolves the
+  baseline's open flags, and a later material change stales
+  the *renewal* decision on its own record. With no decided
+  brief to renew against — never briefed, or briefed but
+  never decided — the request is refused by name and nothing
+  is assembled. The desk queue marks an account whose latest
+  brief is a renewal (an annotation; its order never reads
+  it), and the portfolio brief takes no renewal signal:
+  renewals are how the desk chose to work an account, not a
+  fact about the account's risk, and the published weights
+  rank the file's state, not the paperwork.
 - **Rank the book** — underwriters work a book, not an
   account, so the morning starts with the **portfolio
   brief**: every account's signals counted in code and
@@ -287,7 +322,12 @@ account-scoped keys stamped with the account's *facts-version* —
 a counter bumped on every episode ingested for that account, so a
 new endorsement (or a gate decision) instantly orphans everything
 cached before it: a brief can never serve facts older than the
-latest ingestion. Redis also carries the per-account ingestion
+latest ingestion. The brief cache's key has no assembly-mode
+dimension, so renewal briefs bypass the brief payload cache on
+both sides — a renewal is never served the standard brief cached
+under its key, and never stored where a standard assembly would
+find it (the retrieval cache underneath serves both modes alike;
+it is keyed on facts). Redis also carries the per-account ingestion
 lock, so two workers never ingest the same account at once. Redis
 is an accelerator and a coordinator, never a source of truth —
 Postgres and the context port stay authoritative — and it is
@@ -391,7 +431,20 @@ request-info ask raises no row and its send is refused; an
 account with no brief waits and its send is refused by name;
 an unchased account reads LAPSED UNSENT past its window;
 and on the seeded book the desk's whole chase list is
-ACC-006's two planted lapsed facts. The golden cases assert the
+ACC-006's two planted lapsed facts. A tenth, the **renewal
+brief scenario**, stages a decided account whose file moves
+— the limit endorsed down, the asked-for claims history
+arriving, an inspection grade lapsing — and requires the
+renewal brief's change ledger to equal that staged change
+exactly (one new fact, one supersession with both documents
+cited, one lapse, four facts unchanged), its baseline quoted
+from the decision record, its inherited ask and staleness
+flag named and untouched; the renewal's own decision then
+resolves the baseline's flag and is itself staled by a
+further endorsement, the baseline brief byte-identical
+throughout, an undecided account's renewal refused by name,
+and a seeded-book renewal against a fresh decision carrying
+an empty ledger. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the

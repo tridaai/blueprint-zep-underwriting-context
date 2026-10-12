@@ -684,6 +684,131 @@ a projection, a send, and no new machinery anywhere else.
   book, where the desk's whole chase list is ACC-006's two
   planted lapsed facts.
 
+## Renewal briefs — decide against the last decision
+
+The brief diff answers *what changed since the last brief*.
+The question a returning account actually poses is sharper:
+*what has changed since we decided?* The two anchors diverge
+exactly when the work is interesting — a brief assembled and
+never decided, a decision recorded between two assemblies —
+and in those worlds the diff's baseline is the wrong one.
+Renewal assembly (`renewals.py`) is the mode that anchors to
+the decision. It is a mode, not a behaviour: requested
+explicitly (`mode` on assembly — the API field, the CLI flag,
+the console button), and standard assembly is byte-identical
+whether or not the account has renewal history.
+
+- **The baseline is a decision, found by the watch's own
+  rule.** The most recent brief for the account with status
+  `DECIDED` and a recorded decision — the gate's three
+  actions, `proceed` / `request_info` / `escalate`, being the
+  decision record's whole vocabulary — whose as-of is not
+  later than the renewal's. The as-of bound is the diff's
+  no-borrowed-hindsight discipline applied to decisions: a
+  renewal never compares against a decision dated after it.
+  The renewal carries the baseline quoted from that brief's
+  record: its id and as-of, the action, the decider, the
+  rationale, the moment. The baseline brief is read, never
+  written — the quotation lives on the renewal.
+- **The ledger is the diff machinery, renamed to the
+  decision's terms.** `diffing.compute_diff` runs over the
+  baseline brief's payload and the renewal's: **new** facts,
+  **superseded** facts (the value the decision rested on,
+  the value standing now, both documents cited), **lapsed**
+  facts (the diff's removals — facts current at the decision
+  whose windows have since closed with no successor in
+  force, the temporal rule's `expired` verdict, plus any
+  fact gone from the file entirely), and the unchanged facts
+  **counted, not listed**: the ledger is about change, and a
+  renewal where nothing moved says so in one line. One
+  exclusion, on the staleness watch's precedent: the
+  baseline decision's own echo — the `underwriter_decision`
+  fact its decision memo planted, keyed to the baseline
+  brief — is not news about the account. It is the baseline,
+  and it appears in the baseline block, never as a "new
+  fact" in the ledger.
+- **Open business is inherited by reference, never by
+  touch.** At assembly the renewal reads the follow-through
+  store's open records and the staleness store's open
+  records for the account and names them with their states:
+  the ask still waiting on the broker (either origin — a
+  decision's request-info ask or a chase's), and the flags
+  still open. Assembling a renewal completes no item,
+  resolves no flag, and writes to neither store; the section
+  is a snapshot on the brief, and the records' own pages
+  remain the only place their state changes.
+- **The refusal is part of the design.** No DECIDED brief on
+  or before the requested date — never briefed, briefed but
+  never decided, or decided only later — and renewal
+  assembly raises `RenewalError` naming which world the
+  account is in. The check runs at the service door, before
+  any pipeline work: a refused renewal assembles nothing and
+  stores nothing, and is never quietly served as a standard
+  brief. (The pipeline re-finds the baseline when it
+  attaches the section; the two reads agree within one
+  assembly.)
+- **Attachment rides the verify step, beside the diff.**
+  The section is computed in `step_verify`, after
+  `attach_diff`, and re-saved on the brief — so the payload
+  the gate's checkpoint holds already carries it, and the
+  decision recorded on resume lands on a brief that names
+  its baseline. The audit chain account → decision →
+  renewal → decision is therefore walkable from the brief
+  records alone: each renewal states its baseline's brief
+  id and decision, and carries its own decision when the
+  gate acts. The renewal brief also gains an audit entry
+  (`renewal_baseline`) naming the decision it was assembled
+  against.
+- **Decision discipline is deliberately unoriginal.** The
+  renewal's decision is a fresh decision through the
+  existing gate; the baseline decision is never carried,
+  copied, or implied. Staleness needs no renewal case: the
+  watch already keys on *the latest decided brief*, so the
+  baseline's open flags resolve by the renewal's decision
+  (the one resolution path there is), a material change
+  after it raises a record against the renewal brief, and
+  the baseline's records keep their history — stamped
+  resolved, never reopened, never edited.
+- **No new storage, and the cache stays honest.** The
+  section is an optional field on the brief payload
+  (`renewal`, `None` on every standard brief and on briefs
+  stored before the mode existed) — the support grade's
+  precedent on the same JSONB record, so **no migration**.
+  The brief payload cache is keyed (account, facts-version,
+  as-of) with no mode dimension, and a renewal is a
+  different payload for that key: renewal assemblies bypass
+  the payload cache on read *and* write, so neither mode
+  can be served the other's brief. The port-level retrieval
+  cache is keyed on facts and serves both modes alike.
+- **Surfaces, under the standing disciplines.** The API
+  takes the mode on `POST /briefs` (a refusal is a 409
+  naming its cause) and the brief payload carries the
+  section; the text export renders baseline, ledger, and
+  inherited business ahead of the facts they frame. The
+  console adds the renewal badge, the baseline/ledger/
+  inherited card, and the assemble-as-renewal action. The
+  desk queue annotates an account whose latest brief is a
+  renewal (`brief_is_renewal`) — display only; the order is
+  built exactly as before, pinned by a twin-world comparison
+  (identical worlds diverging only in the second assembly's
+  mode produce identical queue orders). The portfolio brief
+  takes **no renewal signal**, deliberately: every published
+  weight ranks a state of the account's *file* — a stale
+  decision, a lapse, an open ask — while renewal-ness is a
+  state of the desk's *paperwork*, how the underwriter chose
+  to work the account. Counting it would rank workflow
+  choices as if they were exposure; if that ever changes,
+  the weights are published data and the change is a
+  separate, deliberate act. Pinned in
+  `tests/test_renewals.py` and the eval pack's renewal brief
+  scenario: a staged decision, the wave that moves it, a
+  ledger asserted entry by entry against the staged change,
+  the inherited ask and flag untouched by assembly, the
+  renewal decision resolving and then staling on its own
+  record — the baseline brief byte-identical at every step —
+  and, on the seeded book, a renewal against a fresh
+  decision with an empty ledger.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -795,6 +920,7 @@ src/zep_context_agent/
   chases.py        the renewal chase: watch rows joined to asks — projection, dedupe, the send
   portfolio.py     the morning portfolio brief: signals counted, the book ranked
   support.py       support grading: how well-backed each current fact is (derived at assembly)
+  renewals.py      renewal briefs: the baseline decision, the change ledger, inherited open business
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator
   store.py / db.py brief store (Postgres + migrations) + in-memory double
   checkpoints.py   Postgres checkpointer / MemorySaver / off
