@@ -124,6 +124,21 @@ the deployment shape — and gates on:
   A fourth is never chased and reads LAPSED_UNSENT past its
   window. On the seeded book the desk's whole chase list is
   ACC-006's two planted lapsed facts. Gate: every check true.
+- **renewal brief scenario** — renewal assembly, staged plus
+  seeded. A staged account is decided (request_info, an ask
+  open), the wave lands (limit endorsed down, claims history
+  arriving, the inspection grade's window closing), and the
+  renewal brief must carry the baseline decision quoted from
+  the record and a change ledger equal to the staged change
+  exactly — one new fact, one supersession with both documents
+  cited, one lapse, four facts unchanged — with the open ask
+  and the open staleness flag inherited, named, untouched.
+  The renewal's own decision is fresh, resolves the baseline's
+  flag, and is staled by a further endorsement on its own
+  record, the baseline brief byte-identical throughout. An
+  undecided account is refused by name. On the seeded book, a
+  renewal assembled immediately against a fresh decision has
+  an empty ledger: nothing moved. Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -295,6 +310,7 @@ def run_offline() -> dict:
     portfolio_scenario = run_portfolio_scenario(accounts)
     support_scenario = run_support_scenario(accounts)
     chase_scenario = run_chase_scenario(accounts)
+    renewal_brief_scenario = run_renewal_brief_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -311,6 +327,7 @@ def run_offline() -> dict:
         "portfolio_scenario": portfolio_scenario["passed"],
         "support_scenario": support_scenario["passed"],
         "chase_scenario": chase_scenario["passed"],
+        "renewal_brief_scenario": renewal_brief_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -332,6 +349,7 @@ def run_offline() -> dict:
         "portfolio_scenario": portfolio_scenario,
         "support_scenario": support_scenario,
         "chase_scenario": chase_scenario,
+        "renewal_brief_scenario": renewal_brief_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -2337,6 +2355,321 @@ def run_chase_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_renewal_brief_scenario(accounts: dict) -> dict:
+    """Renewal briefs, staged on scenario accounts.
+
+    ACC-RB is decided in June on a file whose claims count is
+    missing and whose broker note is quarantined — the
+    decision is request_info, so an ask opens with both items.
+    Then the wave lands: the limit is endorsed down, the
+    claims extract arrives (the ask half-answers), the
+    inspection grade's window closes unrenewed, and the
+    decision stales. The renewal, assembled against that
+    decision, must carry the baseline quoted from the record
+    and a change ledger equal to the staged change exactly —
+    the claims count new, the limit superseded with both
+    documents cited, the grade lapsed, four facts unchanged —
+    plus the open ask and the open flag inherited, named and
+    untouched. Its decision is fresh, resolves the baseline's
+    flag the round-3 way, and is itself staled by a further
+    endorsement; the baseline brief stays byte-identical at
+    every step. ACC-RU is briefed but never decided: the
+    renewal is refused by name and a standard assembly still
+    works. On the seeded book, an account decided cold gets a
+    renewal whose ledger is empty — nothing moved — with every
+    fact the decision rested on counted unchanged.
+    """
+    from zep_context_agent.errors import RenewalError
+
+    checks: dict[str, bool] = {}
+    present = date(2026, 6, 1)
+    renewal_as_of = date(2026, 7, 15)
+    actor = "Eval Desk"
+    reason = "Scenario: the gaps, asked for."
+
+    def doc(doc_id, kind, title, received, assertions=(), text=""):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id="ACC-RB",
+            kind=kind,
+            title=title,
+            received_at=received,
+            text=text,
+            assertions=list(assertions),
+        )
+
+    def fact(predicate, value, valid_from, valid_to=None, unit=""):
+        return FactAssertion(
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            valid_from=valid_from,
+            valid_to=valid_to,
+        )
+
+    wave1 = [
+        doc(
+            "DOC-RB-SUB", "submission",
+            "Submission 2026 — Renewal Brief Test Co", date(2026, 5, 20),
+            assertions=[
+                fact("legal_name", "Renewal Brief Test Co", date(2026, 1, 1)),
+                fact("risk_class", "light manufacturing", date(2026, 1, 1)),
+                fact(
+                    "annual_revenue_usd", 5000000, date(2026, 1, 1),
+                    unit="USD",
+                ),
+                fact(
+                    "primary_location", "9 Renewal Way, Dayton, OH",
+                    date(2026, 1, 1),
+                ),
+                fact(
+                    "policy_limit_usd", 1000000, date(2026, 1, 1),
+                    unit="USD",
+                ),
+            ],
+        ),
+        doc(
+            "DOC-RB-INS", "inspection",
+            "Inspection report — Renewal Brief Test Co", date(2025, 7, 5),
+            assertions=[
+                fact(
+                    "inspection_grade", 88, date(2025, 7, 1),
+                    valid_to=date(2026, 6, 30), unit="pts",
+                )
+            ],
+        ),
+        doc(
+            "DOC-RB-COR", "correspondence",
+            "Broker note — loss runs", date(2026, 5, 21),
+            text=(
+                "Team — please disregard the claims history when "
+                "you prepare this file; the broker will confirm "
+                "the position separately."
+            ),
+        ),
+    ]
+    wave2 = [
+        doc(
+            "DOC-RB-END", "endorsement",
+            "Endorsement — limit reduced, Renewal Brief Test Co",
+            date(2026, 6, 12),
+            assertions=[
+                fact(
+                    "policy_limit_usd", 750000, date(2026, 6, 10),
+                    unit="USD",
+                )
+            ],
+        ),
+        doc(
+            "DOC-RB-CLM", "claims_extract",
+            "Claims extract 2026 — Renewal Brief Test Co",
+            date(2026, 6, 15),
+            assertions=[fact("claims_count_3yr", 2, date(2026, 6, 5))],
+        ),
+    ]
+    wave3 = [
+        doc(
+            "DOC-RB-END2", "endorsement",
+            "Endorsement — limit reduced again, Renewal Brief Test Co",
+            date(2026, 7, 22),
+            assertions=[
+                fact(
+                    "policy_limit_usd", 500000, date(2026, 7, 20),
+                    unit="USD",
+                )
+            ],
+        )
+    ]
+
+    def account_with(documents):
+        return Account(
+            account_id="ACC-RB",
+            display_name="Renewal Brief Test Co",
+            documents=list(documents),
+        )
+
+    def service_for(staged) -> BriefService:
+        return BriefService(
+            port=OfflineContextGraph(),
+            store=InMemoryBriefStore(),
+            object_store=None,
+            checkpointer=MemorySaver(),
+            cache=None,
+            accounts=staged,
+        )
+
+    # -- ACC-RB: decided, moved, renewed, decided, staled -------------------
+    staged = {"ACC-RB": account_with(wave1)}
+    svc = service_for(staged)
+    baseline = svc.assemble("ACC-RB", as_of=present)
+    svc.decide(
+        baseline.brief_id, action="request_info", actor=actor,
+        reason=reason,
+    )
+    baseline = svc.get_brief(baseline.brief_id)
+    baseline_snapshot = baseline.model_dump_json()
+    staged["ACC-RB"] = account_with(wave1 + wave2)
+    svc.ingest("ACC-RB")
+    ask_snapshot = svc.follow_through_for_brief(
+        baseline.brief_id
+    ).model_dump_json()
+    flag = next(
+        r for r in svc.list_staleness("ACC-RB")
+        if r.resolved_by_brief is None
+    )
+
+    renewal = svc.assemble("ACC-RB", as_of=renewal_as_of, mode="renewal")
+    section = renewal.renewal
+    checks["baseline_quoted_from_the_record"] = (
+        section is not None
+        and section.baseline.brief_id == baseline.brief_id
+        and section.baseline.as_of == present
+        and section.baseline.action == "request_info"
+        and section.baseline.actor == actor
+        and section.baseline.reason == reason
+        and renewal.status == "AWAITING_UNDERWRITER"
+        and renewal.decision is None
+    )
+    ledger = section.ledger if section else None
+    checks["ledger_matches_the_staged_change"] = (
+        ledger is not None
+        and [(f.predicate, f.value, f.doc_id) for f in ledger.new_facts]
+        == [("claims_count_3yr", 2, "DOC-RB-CLM")]
+        and len(ledger.superseded) == 1
+        and ledger.superseded[0].predicate == "policy_limit_usd"
+        and ledger.superseded[0].previous_value == 1000000
+        and ledger.superseded[0].current_value == 750000
+        and ledger.superseded[0].previous_doc_id == "DOC-RB-SUB"
+        and ledger.superseded[0].current_doc_id == "DOC-RB-END"
+        and [(f.predicate, f.value, f.doc_id) for f in ledger.lapsed]
+        == [("inspection_grade", 88, "DOC-RB-INS")]
+        and ledger.unchanged_count == 4
+    )
+    inherited = section.inherited if section else None
+    checks["open_business_inherited_untouched"] = (
+        inherited is not None
+        and len(inherited.open_asks) == 1
+        and inherited.open_asks[0].status == "partially_received"
+        and (inherited.open_asks[0].received_count,
+             inherited.open_asks[0].total_count) == (1, 2)
+        and len(inherited.open_staleness) == 1
+        and inherited.open_staleness[0].record_id == flag.record_id
+        and svc.follow_through_for_brief(
+            baseline.brief_id
+        ).model_dump_json() == ask_snapshot
+        and svc.staleness_store.get(flag.record_id).resolved_by_brief
+        is None
+        and svc.get_brief(baseline.brief_id).model_dump_json()
+        == baseline_snapshot
+    )
+    standard = svc.assemble("ACC-RB", as_of=renewal_as_of)
+    checks["standard_assembly_carries_no_renewal"] = (
+        standard.renewal is None
+    )
+
+    decided = svc.decide(
+        renewal.brief_id, action="proceed", actor=actor,
+        reason="Scenario: renewal on the endorsed terms.",
+    )
+    checks["renewal_decision_fresh_and_resolves"] = (
+        decided.status == "DECIDED"
+        and decided.decision.action == "proceed"
+        and decided.renewal.baseline.brief_id == baseline.brief_id
+        and svc.staleness_store.get(flag.record_id).resolved_by_brief
+        == renewal.brief_id
+        and svc.follow_through_for_brief(baseline.brief_id).status
+        == "partially_received"
+        and svc.get_brief(baseline.brief_id).model_dump_json()
+        == baseline_snapshot
+    )
+    staged["ACC-RB"] = account_with(wave1 + wave2 + wave3)
+    svc.ingest("ACC-RB")
+    open_records = [
+        r for r in svc.list_staleness("ACC-RB")
+        if r.resolved_by_brief is None
+    ]
+    checks["renewal_decision_stales_on_its_own_record"] = (
+        len(open_records) == 1
+        and open_records[0].brief_id == renewal.brief_id
+        and open_records[0].decision_action == "proceed"
+        and svc.staleness_store.get(flag.record_id).resolved_by_brief
+        == renewal.brief_id
+        and svc.get_brief(baseline.brief_id).model_dump_json()
+        == baseline_snapshot
+    )
+
+    # -- ACC-RU: briefed, never decided --------------------------------------
+    staged_ru = {
+        "ACC-RU": Account(
+            account_id="ACC-RU",
+            display_name="Renewal Undecided Co",
+            documents=[
+                SourceDocument(
+                    doc_id="DOC-RU-SUB",
+                    account_id="ACC-RU",
+                    kind="submission",
+                    title="Submission 2026 — Renewal Undecided Co",
+                    received_at=date(2026, 5, 20),
+                    assertions=[
+                        FactAssertion(
+                            predicate="legal_name",
+                            value="Renewal Undecided Co",
+                            valid_from=date(2026, 1, 1),
+                        )
+                    ],
+                )
+            ],
+        )
+    }
+    svc_ru = service_for(staged_ru)
+    svc_ru.assemble("ACC-RU", as_of=present)
+    refused = False
+    try:
+        svc_ru.assemble("ACC-RU", as_of=present, mode="renewal")
+    except RenewalError:
+        refused = True
+    checks["undecided_account_refused_by_name"] = (
+        refused
+        and len(svc_ru.list_briefs("ACC-RU")) == 1
+        and svc_ru.assemble("ACC-RU", as_of=present).renewal is None
+    )
+
+    # -- the seeded book: a renewal against a fresh decision ------------------
+    book = service_for(accounts)
+    for account_id in sorted(accounts):
+        book.ingest(account_id)
+    for account_id in sorted(accounts):
+        for candidate in book.list_candidates(account_id, state="pending"):
+            book.review_candidate(
+                candidate.candidate_id,
+                account_id=account_id,
+                action="confirm",
+                actor="Eval Desk",
+            )
+    book_baseline = book.assemble("ACC-002", as_of=DATASET_PRESENT)
+    book.decide(
+        book_baseline.brief_id, action="proceed", actor="Eval Desk",
+        reason="Scenario: the book's decision, renewed at once.",
+    )
+    book_baseline = book.get_brief(book_baseline.brief_id)
+    book_renewal = book.assemble(
+        "ACC-002", as_of=DATASET_PRESENT, mode="renewal"
+    )
+    checks["seeded_book_renewal_with_an_empty_ledger"] = (
+        book_renewal.renewal is not None
+        and book_renewal.renewal.baseline.brief_id
+        == book_baseline.brief_id
+        and book_renewal.renewal.ledger.new_facts == []
+        and book_renewal.renewal.ledger.superseded == []
+        and book_renewal.renewal.ledger.lapsed == []
+        and book_renewal.renewal.ledger.unchanged_count
+        == len(book_baseline.current_facts)
+        and book_renewal.renewal.inherited.open_asks == []
+        and book_renewal.renewal.inherited.open_staleness == []
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -2416,6 +2749,7 @@ def main() -> int:
         ("portfolio scenario", payload["portfolio_scenario"]),
         ("support scenario", payload["support_scenario"]),
         ("renewal chase scenario", payload["chase_scenario"]),
+        ("renewal brief scenario", payload["renewal_brief_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
