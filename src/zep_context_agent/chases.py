@@ -493,7 +493,10 @@ def send_renewal_chase(
             f"({account.account_id}) is already satisfied"
             + (f" — the renewal arrived in {docs}." if docs else ".")
         )
-    if row.state == "WAITING_ON_BRIEF":
+    # A LAPSED_UNSENT row outranks WAITING_ON_BRIEF in the
+    # projection, so a lapsed chase on a brief-less account
+    # reaches here too — refuse it on the brief, not the state.
+    if row.state == "WAITING_ON_BRIEF" or row.brief_id is None:
         raise ChaseError(
             f"The renewal chase for {label} on {account.display_name} "
             f"({account.account_id}) cannot be sent: the account has "
@@ -513,7 +516,7 @@ def send_renewal_chase(
         flagged, port.get_facts(account.account_id)
     )
     briefs = brief_store.list(account.account_id)
-    latest = briefs[-1]  # WAITING_ON_BRIEF already refused the empty case
+    latest = briefs[-1]  # the no-brief case was refused above
     record = follow_mod.open_renewal_ask(
         follow_store,
         latest,

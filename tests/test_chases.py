@@ -225,6 +225,14 @@ def test_no_brief_means_waiting_and_no_send():
     later = rows_for(service, "ACC-NB", as_of=date(2026, 7, 5))
     assert later[0].state == "LAPSED_UNSENT"
     assert later[0].days_remaining == -15
+    # Lapsed is still sendable — but not without a brief to
+    # attach the ask to: refused by name, nothing opened.
+    with pytest.raises(ChaseError, match="no brief"):
+        service.send_chase(
+            "ACC-NB", "inspection_grade", actor=ACTOR,
+            as_of=date(2026, 7, 5), horizon_days=HORIZON,
+        )
+    assert service.list_follow_through("ACC-NB") == []
 
 
 def test_lapsed_unsent_names_the_failure_and_still_sends():

@@ -625,10 +625,13 @@ async function loadChasesCard(accountId) {
       if (r.state === "ASKED") {
         html += `<div class="small">Ask ${r.ask_record_id} is open — the broker owes the renewal. It completes when a renewal document whose window covers the chased term lands.</div>`;
       }
-      if (r.state === "WAITING_ON_BRIEF") {
+      // A lapsed row outranks WAITING_ON_BRIEF, so it can arrive
+      // brief-less too: the send would only be refused.
+      const sendable = r.state === "OPEN" || r.state === "LAPSED_UNSENT";
+      if (r.state === "WAITING_ON_BRIEF" || (sendable && !r.brief_id)) {
         html += `<div class="small">No brief on this account — a chase ask attaches to a brief, so there is nothing to send against yet. Assemble a brief first.</div>`;
       }
-      if (r.state === "OPEN" || r.state === "LAPSED_UNSENT") {
+      if (sendable && r.brief_id) {
         html += `<div class="row" style="margin-top:6px">
           <input type="text" class="chase-actor" placeholder="Your name — the send is a named act" size="34">
           <button class="action chase-send" data-predicate="${r.predicate}">Send chase</button>
