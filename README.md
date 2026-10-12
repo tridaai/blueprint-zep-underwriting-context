@@ -316,6 +316,31 @@ ingest → screen → assemble → verify → gate
   broker-level decisions; the book is read-only, served at
   `GET /brokers`, in the console, and via the CLI's
   `brokers` command.
+- **Export the period's decision book** — underwriting is
+  audited as a book, not account by account. The **decision
+  book** (`decisionbook.py`) composes one document for a
+  stated period: every governed act recorded in the window,
+  in time order — gate decisions (a renewal brief's decision
+  marked, with the baseline it was decided against),
+  staleness flags raised and resolved, request-info asks
+  opened, items received, and asks completed, renewal chases
+  sent, and the review gate's confirmations and rejections.
+  Each entry names its source record, so any line traces
+  back to the surface that owns the act. The face carries
+  the coverage statement — the period, the window rule
+  (an act's recorded moment, read in UTC, on or between the
+  bounds, both inclusive), the source list the completeness
+  claim rests on, the counts by kind — and a SHA-256 digest
+  over the book's content. The book carries no generation
+  stamp, so the same stores compose to the same bytes, and
+  composing it writes nothing. A record claiming a completed
+  act but carrying no moment — unreachable through the
+  service, where every act stamps its moment as it lands —
+  is listed in an undated section: never dropped, never
+  dated by invention. Served at `GET /decision-book`
+  (JSON, or `format=text` to download the copy a reviewer
+  keeps), in the console's Decision book section, and via
+  the CLI's `decision-book --from … --to …` command.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -483,7 +508,17 @@ unattributed account grouped and counted, not dropped; the
 published chasing order with no score anywhere; the decided
 briefs byte-identical; and on the seeded book, six broker
 rows in the dataset's own placing counts with totals equal
-to the portfolio brief's. The golden cases assert the
+to the portfolio brief's. A twelfth, the **decision book
+scenario**, stages two accounts acting across a fortnight —
+a decision and its ask, a staleness flag raised and resolved
+by a renewal decision, an item received and the ask
+completed, a renewal chase sent, a candidate confirmed and
+another rejected — and requires the book to list each act
+exactly once, in time order, with counts equal to the
+stores' own reads; the window's bounds inclusive, an act a
+day outside absent; regeneration byte-identical with the
+same digest; composing writing nothing; and an empty window
+an honest empty book. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the

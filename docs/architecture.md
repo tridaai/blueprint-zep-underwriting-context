@@ -890,6 +890,79 @@ question, and this is its read model.
   beat in the demo, where the decided account's broker
   shows one proceed and nothing owed.
 
+## The decision book — the period, exported
+
+`decisionbook.py` is the desk's period export: every
+governed act recorded in a stated window, across every
+account, in time order — the one document an E&O reviewer
+holds. Every earlier surface answers per account (the brief,
+the timeline) or aggregates counts (the portfolio brief,
+the broker book); nobody laid a period's *acts* side by
+side. This is that composition, and only that: it reads
+four sources and joins no fifth.
+
+- **The sources, printed on the face.** The brief store
+  (gate decisions — a renewal brief's decision is marked
+  and names the baseline brief it was decided against),
+  the staleness store (flags raised, with the material
+  change and the triggering episodes; flags resolved, with
+  the fresh decision that resolved them — the only
+  resolution path), the follow-through store (asks opened,
+  items received with the satisfying episode, asks
+  completed; renewal chases sent, listed under their own
+  kind so a chase-origin record never double-counts as an
+  ask opening), and the review gate's cited layer
+  (candidates confirmed and rejected, with actor and, on a
+  rejection, the reason). The completeness rule is stated
+  on the book: every source on the printed list contributes
+  every act it holds in the window — a future store of
+  acts joins the book by joining that list, or the book is
+  lying and says so on its face. Each entry carries its
+  source record's identity (brief, ask, staleness record,
+  candidate), so any line traces back to the surface that
+  owns the act.
+- **The window rule.** An act stands in the book when its
+  recorded moment — read in UTC — falls on or between the
+  period's first and last day; both bounds are inclusive.
+  A naive stamp is read as the UTC stamp its writer meant
+  (every writer here stamps UTC; the desk runs on one clock
+  since the round-10 fix). Same-moment entries order by a
+  published kind rank — the human decides, the gate admits
+  or refuses paper, the watches react, the asks proceed —
+  then account, then source identity, then summary, so the
+  order is total.
+- **Undated acts: none by construction, defended anyway.**
+  Every completed act stamps its moment in a required field
+  or as it lands: `decided_at`, `flagged_at`, `created_at`,
+  `completed_at` are schema-required; `resolved_at`,
+  `received_at`, and `reviewed_at` are set exactly when the
+  act they stamp happens. What carries no moment is not
+  yet an act — a pending candidate, an open item, an
+  unresolved flag — and is excluded by state, not by date.
+  A record that nonetheless *claims* a completed act with
+  no moment (a confirmed candidate with no `reviewed_at`;
+  unreachable through the service) is composed into the
+  book's undated section, named with its source: never
+  silently dropped, never given a date it does not carry.
+- **Integrity.** The book carries no generation stamp, so
+  the same stores compose to the same bytes; a SHA-256
+  digest over the book's content (period, window rule,
+  sources, counts, entries, undated — the digest field
+  itself excluded) is printed on its face. An empty window
+  composes to an honest empty book — zero counts, digest
+  present — not an error; the one refusal is a reversed
+  period, refused by name (`DecisionBookError`, 400 at the
+  API). Composing writes nothing: every store and the
+  cited layer are byte-identical around the build, decided
+  briefs included, pinned by test and by the eval pack's
+  decision book scenario. No migration: the book stores
+  nothing. Surfaces: the service's `decision_book`,
+  `GET /decision-book` (JSON, or `format=text` as a
+  downloadable text document — the copy a reviewer
+  keeps), the console's Decision book section, and the
+  CLI's `decision-book --from … --to …` command. The
+  per-account audit surfaces are untouched.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
