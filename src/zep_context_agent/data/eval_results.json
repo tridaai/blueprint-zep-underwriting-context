@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-11T19:38:04.712166+00:00",
+  "generated_at": "2026-10-12T01:00:35.066375+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -455,6 +455,88 @@
     },
     "passed": true
   },
+  "portfolio_scenario": {
+    "checks": {
+      "building_the_brief_mutates_nothing": true,
+      "brief_is_byte_deterministic": true,
+      "weights_are_the_authored_ones": true,
+      "signals_exact": true,
+      "order_exact": true,
+      "scores_exact": true,
+      "score_is_the_weighted_sum": true,
+      "zero_signal_rows_close_by_name": true,
+      "book_lists_every_account": true,
+      "acc006_heads_the_book_on_its_planted_lapses": true,
+      "the_rest_of_the_book_is_unexamined_only": true,
+      "tied_rows_stand_in_name_order": true,
+      "zephyr_closes_the_book": true,
+      "book_brief_renders": true
+    },
+    "passed": true
+  },
+  "support_scenario": {
+    "checks": {
+      "single_document_grades_standard": true,
+      "second_document_upgrades_to_strong": true,
+      "decided_brief_byte_identical_with_its_old_grade": true,
+      "grades_gate_nothing": true,
+      "an_unconfirmed_letter_is_missing_not_thin": true,
+      "thin_shapes_grade_as_planted": true,
+      "the_contest_names_the_displaced_value": true,
+      "a_corroborated_letter_caps_at_standard": true,
+      "soft_spots_list_the_thin_facts_only": true,
+      "acc001_grade_map_is_the_hand_derived_one": true,
+      "the_quarantined_letter_contests_nothing": true,
+      "acc001_has_exactly_five_soft_spots": true,
+      "acc-002_grades_clean": true,
+      "acc-006_grades_clean": true,
+      "portfolio_counts_thin_unweighted": true,
+      "desk_queue_counts_thin_with_the_port_only": true
+    },
+    "passed": true
+  },
+  "chase_scenario": {
+    "checks": {
+      "row_appears_open_with_exact_day_math": true,
+      "send_opens_the_ask_through_the_machinery": true,
+      "renewal_lands_and_the_chase_reads_satisfied": true,
+      "decided_brief_byte_identical": true,
+      "covered_predicate_no_row_and_send_refused": true,
+      "no_brief_waits_and_the_send_is_refused": true,
+      "lapsed_unsent_names_the_failure": true,
+      "seeded_book_chases_are_acc006s_two_lapses": true
+    },
+    "passed": true
+  },
+  "renewal_brief_scenario": {
+    "checks": {
+      "baseline_quoted_from_the_record": true,
+      "ledger_matches_the_staged_change": true,
+      "open_business_inherited_untouched": true,
+      "standard_assembly_carries_no_renewal": true,
+      "renewal_decision_fresh_and_resolves": true,
+      "renewal_decision_stales_on_its_own_record": true,
+      "undecided_account_refused_by_name": true,
+      "seeded_book_renewal_with_an_empty_ledger": true
+    },
+    "passed": true
+  },
+  "broker_book_scenario": {
+    "checks": {
+      "order_and_rows": true,
+      "broker_a_hand_derived": true,
+      "broker_a_asks_listed_per_account": true,
+      "broker_b_clean": true,
+      "unattributed_grouped_not_dropped": true,
+      "no_score_anywhere": true,
+      "composition_equals_the_surfaces": true,
+      "listings_are_the_follow_store": true,
+      "decided_briefs_byte_identical": true,
+      "seeded_book_placings": true,
+      "seeded_totals_equal_the_portfolio": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -466,7 +548,12 @@
     "staleness_scenario": true,
     "followthrough_scenario": true,
     "timeline_scenario": true,
-    "review_scenario": true
+    "review_scenario": true,
+    "portfolio_scenario": true,
+    "support_scenario": true,
+    "chase_scenario": true,
+    "renewal_brief_scenario": true,
+    "broker_book_scenario": true
   },
   "passed": true
 }

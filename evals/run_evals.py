@@ -139,6 +139,21 @@ the deployment shape — and gates on:
   undecided account is refused by name. On the seeded book, a
   renewal assembled immediately against a fresh decision has
   an empty ledger: nothing moved. Gate: every check true.
+- **broker book scenario** — the per-broker read model,
+  staged plus seeded. Broker Alpha's three accounts carry
+  two open asks, one stale decision, and one expiring fact;
+  Broker Bravo's one account is clean; an account whose
+  paper names no broker groups under the unattributed row,
+  counted, not dropped. Every figure is asserted twice:
+  hand-derived from the staging, and as the portfolio
+  brief's per-account signals over the same world summed
+  per broker. The order is the published chasing order with
+  the unattributed row last, no score exists, the decided
+  briefs stay byte-identical, and the ask listings are the
+  follow store's open records. On the seeded book: six
+  broker rows in the dataset's own placing counts, no
+  unattributed row, and totals equal to the portfolio
+  brief's. Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -311,6 +326,7 @@ def run_offline() -> dict:
     support_scenario = run_support_scenario(accounts)
     chase_scenario = run_chase_scenario(accounts)
     renewal_brief_scenario = run_renewal_brief_scenario(accounts)
+    broker_book_scenario = run_broker_book_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -328,6 +344,7 @@ def run_offline() -> dict:
         "support_scenario": support_scenario["passed"],
         "chase_scenario": chase_scenario["passed"],
         "renewal_brief_scenario": renewal_brief_scenario["passed"],
+        "broker_book_scenario": broker_book_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -350,6 +367,7 @@ def run_offline() -> dict:
         "support_scenario": support_scenario,
         "chase_scenario": chase_scenario,
         "renewal_brief_scenario": renewal_brief_scenario,
+        "broker_book_scenario": broker_book_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -2670,6 +2688,336 @@ def run_renewal_brief_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_broker_book_scenario(accounts: dict) -> dict:
+    """The broker book, staged plus seeded.
+
+    Broker Eval Alpha places three accounts: two decided
+    request_info with an ask outstanding each, and one decided
+    proceed that an endorsement then stales, its inspection
+    grade running out inside the horizon (an expiring fact,
+    a chase standing open). Broker Eval Bravo places one clean
+    decided account. One account's paper names no broker: it
+    must group under the unattributed row, counted, not
+    dropped. Every figure is asserted twice — hand-derived
+    from the staging, and as the per-account surfaces' own
+    numbers (the portfolio brief's signals over the same
+    world) summed per broker. The order is the published
+    chasing order with the unattributed row last, no score
+    exists, the decided briefs stay byte-identical, and the
+    ask listings are the follow store's open records with
+    their outstanding items. On the seeded book, ingested
+    whole and never decided: six broker rows in the dataset's
+    own placing counts, no unattributed row, every account
+    undecided, and the book's totals equal the portfolio
+    brief's over the same service.
+    """
+    from zep_context_agent.ontology import EdgeAssertion
+
+    checks: dict[str, bool] = {}
+    present = date(2026, 6, 1)
+
+    def doc(doc_id, account_id, kind, title, received, assertions=(), edges=()):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id=account_id,
+            kind=kind,
+            title=title,
+            received_at=received,
+            assertions=list(assertions),
+            edges=list(edges),
+        )
+
+    def fact(predicate, value, valid_from, valid_to=None, unit=""):
+        return FactAssertion(
+            predicate=predicate,
+            value=value,
+            unit=unit,
+            valid_from=valid_from,
+            valid_to=valid_to,
+        )
+
+    def submission(doc_id, account_id, name, broker=None, omit=()):
+        values = {
+            "legal_name": name,
+            "risk_class": "light manufacturing",
+            "annual_revenue_usd": 5000000,
+            "primary_location": "1 Broker Way, Dayton, OH",
+            "policy_limit_usd": 1000000,
+            "claims_count_3yr": 1,
+        }
+        assertions = [
+            fact(
+                predicate, value, date(2026, 1, 1),
+                unit="USD" if predicate.endswith("_usd") else "",
+            )
+            for predicate, value in values.items()
+            if predicate not in omit
+        ]
+        edges = []
+        if broker is not None:
+            edges = [
+                EdgeAssertion(
+                    source_ref=account_id,
+                    edge_type="placed_by",
+                    target_ref=broker[0],
+                    label=broker[1],
+                )
+            ]
+        return doc(
+            doc_id, account_id, "submission",
+            f"Submission 2026 — {name}", date(2026, 5, 20),
+            assertions, edges,
+        )
+
+    ALPHA = ("BRK-EA", "Eval Alpha Brokers")
+    BRAVO = ("BRK-EB", "Eval Bravo Brokers")
+
+    ea3_phase1 = Account(
+        account_id="ACC-EA3",
+        display_name="Eval Alpha Three Co",
+        documents=[
+            submission("DOC-EA3-SUB", "ACC-EA3", "Eval Alpha Three Co",
+                       broker=ALPHA),
+            doc(
+                "DOC-EA3-INS", "ACC-EA3", "inspection",
+                "Inspection report — Eval Alpha Three Co",
+                date(2025, 6, 20),
+                assertions=[
+                    fact("inspection_grade", 92, date(2025, 6, 15),
+                         date(2026, 6, 20), unit="pts"),
+                ],
+            ),
+        ],
+    )
+    ea3_full = Account(
+        account_id="ACC-EA3",
+        display_name="Eval Alpha Three Co",
+        documents=[
+            *ea3_phase1.documents,
+            doc(
+                "DOC-EA3-END", "ACC-EA3", "endorsement",
+                "Endorsement — limit reduced, Eval Alpha Three Co",
+                date(2026, 5, 16),
+                assertions=[
+                    fact("policy_limit_usd", 750000, date(2026, 5, 15),
+                         unit="USD"),
+                ],
+            ),
+        ],
+    )
+    staged = {
+        "ACC-EA1": Account(
+            account_id="ACC-EA1",
+            display_name="Eval Alpha One Co",
+            documents=[
+                submission("DOC-EA1-SUB", "ACC-EA1", "Eval Alpha One Co",
+                           broker=ALPHA, omit=("claims_count_3yr",)),
+            ],
+        ),
+        "ACC-EA2": Account(
+            account_id="ACC-EA2",
+            display_name="Eval Alpha Two Co",
+            documents=[
+                submission("DOC-EA2-SUB", "ACC-EA2", "Eval Alpha Two Co",
+                           broker=ALPHA, omit=("annual_revenue_usd",)),
+            ],
+        ),
+        "ACC-EA3": ea3_phase1,
+        "ACC-EB1": Account(
+            account_id="ACC-EB1",
+            display_name="Eval Bravo One Co",
+            documents=[
+                submission("DOC-EB1-SUB", "ACC-EB1", "Eval Bravo One Co",
+                           broker=BRAVO),
+            ],
+        ),
+        "ACC-EU1": Account(
+            account_id="ACC-EU1",
+            display_name="Eval Unplaced Co",
+            documents=[
+                submission("DOC-EU1-SUB", "ACC-EU1", "Eval Unplaced Co"),
+            ],
+        ),
+    }
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=staged,
+    )
+    decided_snapshots = {}
+    for account_id, missing in (
+        ("ACC-EA1", "claims history"),
+        ("ACC-EA2", "revenue"),
+    ):
+        brief = service.assemble(account_id, as_of=present)
+        service.decide(
+            brief.brief_id, action="request_info", actor="Eval Desk",
+            reason=f"Scenario: {missing} outstanding.",
+        )
+        decided_snapshots[brief.brief_id] = service.get_brief(
+            brief.brief_id
+        ).model_dump_json()
+    brief_ea3 = service.assemble("ACC-EA3", as_of=date(2026, 5, 1))
+    service.decide(
+        brief_ea3.brief_id, action="proceed", actor="Eval Desk",
+        reason="Scenario: the file as it stood.",
+    )
+    decided_snapshots[brief_ea3.brief_id] = service.get_brief(
+        brief_ea3.brief_id
+    ).model_dump_json()
+    staged["ACC-EA3"] = ea3_full
+    service.ingest("ACC-EA3")
+    brief_eb1 = service.assemble("ACC-EB1", as_of=present)
+    service.decide(
+        brief_eb1.brief_id, action="proceed", actor="Eval Desk",
+        reason="Scenario: complete file.",
+    )
+    decided_snapshots[brief_eb1.brief_id] = service.get_brief(
+        brief_eb1.brief_id
+    ).model_dump_json()
+
+    book = service.broker_book(as_of=present, horizon_days=45)
+    rows = {r.broker_id: r for r in book.rows}
+    checks["order_and_rows"] = [r.broker_id for r in book.rows] == [
+        "BRK-EA",
+        "BRK-EB",
+        None,
+    ]
+    alpha = rows.get("BRK-EA")
+    checks["broker_a_hand_derived"] = (
+        alpha is not None
+        and alpha.accounts == 3
+        and alpha.decided_proceed == 1
+        and alpha.decided_request_info == 2
+        and alpha.decided_escalate == 0
+        and alpha.undecided == 0
+        and alpha.open_asks == 2
+        and alpha.open_items == 2
+        and alpha.stale_decisions == 1
+        and alpha.expiring_facts == 1
+        and alpha.lapsed_facts == 0
+        and alpha.open_chases == 1
+    )
+    checks["broker_a_asks_listed_per_account"] = (
+        alpha is not None
+        and {a.account_id for a in alpha.asks} == {"ACC-EA1", "ACC-EA2"}
+        and {
+            a.account_id: [i.predicate for i in a.items]
+            for a in alpha.asks
+        }
+        == {
+            "ACC-EA1": ["claims_count_3yr"],
+            "ACC-EA2": ["annual_revenue_usd"],
+        }
+    )
+    bravo = rows.get("BRK-EB")
+    checks["broker_b_clean"] = (
+        bravo is not None
+        and bravo.accounts == 1
+        and bravo.decided_proceed == 1
+        and bravo.open_asks == 0
+        and bravo.stale_decisions == 0
+        and bravo.expiring_facts == 0
+        and bravo.asks == []
+    )
+    unattributed = rows.get(None)
+    checks["unattributed_grouped_not_dropped"] = (
+        unattributed is not None
+        and unattributed.broker_name == "Unattributed"
+        and unattributed.accounts == 1
+        and unattributed.account_ids == ["ACC-EU1"]
+        and unattributed.undecided == 1
+        and book.rows[-1] is unattributed
+    )
+    checks["no_score_anywhere"] = (
+        "score" not in book.model_dump()
+        and all("score" not in r.model_dump() for r in book.rows)
+    )
+
+    # Composition: the book is the per-account surfaces, summed.
+    portfolio = service.portfolio_brief(as_of=present, horizon_days=45)
+    signals = {r.account_id: r.signals for r in portfolio.rows}
+    checks["composition_equals_the_surfaces"] = all(
+        row.stale_decisions
+        == sum(signals[a].stale_decisions for a in row.account_ids)
+        and row.open_asks
+        == sum(signals[a].open_asks for a in row.account_ids)
+        and row.expiring_facts
+        == sum(signals[a].expiring_facts for a in row.account_ids)
+        and row.lapsed_facts
+        == sum(signals[a].lapsed_facts for a in row.account_ids)
+        and row.pending_candidates
+        == sum(signals[a].pending_candidates for a in row.account_ids)
+        and row.undecided
+        == sum(signals[a].no_decided_brief for a in row.account_ids)
+        for row in book.rows
+    )
+    open_records = {
+        (r.account_id, r.record_id)
+        for r in service.list_follow_through()
+        if r.status != "complete"
+    }
+    checks["listings_are_the_follow_store"] = open_records == {
+        (a.account_id, a.record_id) for row in book.rows for a in row.asks
+    }
+    checks["decided_briefs_byte_identical"] = all(
+        service.get_brief(brief_id).model_dump_json() == snapshot
+        for brief_id, snapshot in decided_snapshots.items()
+    )
+
+    # The seeded book: the dataset's own placings, whole.
+    seeded = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=accounts,
+    )
+    for account_id in sorted(accounts):
+        seeded.ingest(account_id)
+    seeded_book = seeded.broker_book(
+        as_of=DATASET_PRESENT, horizon_days=45
+    )
+    seeded_rows = {r.broker_id: r for r in seeded_book.rows}
+    checks["seeded_book_placings"] = (
+        None not in seeded_rows
+        and {
+            broker_id: row.accounts
+            for broker_id, row in seeded_rows.items()
+        }
+        == {
+            "BRK-ALDER": 9,
+            "BRK-HARBOR": 8,
+            "BRK-SUMMIT": 7,
+            "BRK-KESTREL": 6,
+            "BRK-COPPER": 6,
+            "BRK-NORTHGATE": 4,
+        }
+        and sum(r.accounts for r in seeded_book.rows) == 40
+        and sum(r.undecided for r in seeded_book.rows) == 40
+    )
+    seeded_portfolio = seeded.portfolio_brief(
+        as_of=DATASET_PRESENT, horizon_days=45
+    )
+    checks["seeded_totals_equal_the_portfolio"] = (
+        sum(r.open_asks for r in seeded_book.rows)
+        == sum(r.signals.open_asks for r in seeded_portfolio.rows)
+        and sum(r.pending_candidates for r in seeded_book.rows)
+        == sum(
+            r.signals.pending_candidates for r in seeded_portfolio.rows
+        )
+        and sum(r.expiring_facts for r in seeded_book.rows)
+        == sum(r.signals.expiring_facts for r in seeded_portfolio.rows)
+        and sum(r.lapsed_facts for r in seeded_book.rows)
+        == sum(r.signals.lapsed_facts for r in seeded_portfolio.rows)
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -2750,6 +3098,7 @@ def main() -> int:
         ("support scenario", payload["support_scenario"]),
         ("renewal chase scenario", payload["chase_scenario"]),
         ("renewal brief scenario", payload["renewal_brief_scenario"]),
+        ("broker book scenario", payload["broker_book_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
