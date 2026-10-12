@@ -818,6 +818,78 @@ whether or not the account has renewal history.
   and, on the seeded book, a renewal against a fresh
   decision with an empty ledger.
 
+## The broker book — the book, grouped by broker
+
+`brokers.py` is the per-broker projection: the whole book
+grouped by placing broker, answering what each broker owes
+the desk and how their accounts stand. Every earlier
+cross-account surface groups by account; the desk's asks,
+though, are in substance asks *of* brokers — each
+follow-through draft is addressed to "the broker of record"
+for its account — so the owed-work question is a broker
+question, and this is its read model.
+
+- **Identity: the account's own paper.** The grouping key
+  is the ontology's `placed_by` edge (insured_account ->
+  broker), read from the account records' documents — the
+  same place the portfolio brief reads account names — so
+  the whole book groups whether or not an account has been
+  ingested. The identical assertion lands in the graph at
+  ingestion; the book invents no second source for it.
+  Documents are read in arrival order and the most recent
+  assertion wins: the broker *of record* is the latest
+  paper's broker. Only edges the account itself sources
+  count (a submission's `submitted_by` edge names a sender,
+  not a placing). An account whose paper names no broker
+  groups under an explicit unattributed row (`broker_id`
+  is null): grouped and counted like any other row, never
+  silently dropped.
+- **Figures: the surfaces, summed.** No per-account
+  verdict is computed here. The counts are
+  `portfolio.account_signals` aggregated over the broker's
+  accounts — staleness from the watch's open records,
+  expiring and lapsed from the expiry watch, pending
+  candidates from the review gate — plus the decided mix
+  off `staleness.latest_decided_brief` (each account counts
+  once, under its latest decided brief's action, or as
+  undecided) and the open-chase count read from the chase
+  projection exactly as the portfolio row reads it. The
+  owed listing is the follow-through store's open records
+  with their still-outstanding items (received items are
+  answered business and are not listed). If a figure here
+  ever disagreed with the per-account surface it sums, the
+  surface would be right and this module the bug; the
+  composition is pinned by test and by the eval pack's
+  broker book scenario, both of which assert the book
+  against the portfolio brief over the same world.
+- **A ledger, not a ranking.** No score is computed and
+  no weights exist — the portfolio brief is the book's
+  ranking and keeps that job, untouched by this round.
+  The rows carry one published order, because the book is
+  a chasing tool: open asks owed descending, stale
+  decisions descending, then broker name, then broker id,
+  with the unattributed row always last — there is no
+  broker to chase there. The rule is printed on the book
+  itself (`order_rule`) and pinned.
+- **Nothing crosses accounts.** A row aggregates *counts*;
+  the only text it carries is an open ask's own outstanding
+  items, listed under that ask's own account. Fact values
+  and citations never enter the book — they stay on the
+  account's brief, where the leakage discipline already
+  governs them.
+- **Read-only, and a pure projection.** There are no
+  broker-level decisions and no broker-level acts: the
+  gate decides briefs and the chase machinery sends
+  chases, unchanged. Building the book writes nothing —
+  the queue, the portfolio brief, the watches, and every
+  decided brief are byte-identical around the build, and
+  two builds are byte-identical to each other. No
+  migration: the book stores nothing. Surfaces: the
+  service's `broker_book`, `GET /brokers`, the console's
+  Brokers view, the CLI's `brokers` command, and a closing
+  beat in the demo, where the decided account's broker
+  shows one proceed and nothing owed.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -928,6 +1000,7 @@ src/zep_context_agent/
   timeline.py      the account timeline + the expiry watch (pure read models)
   chases.py        the renewal chase: watch rows joined to asks — projection, dedupe, the send
   portfolio.py     the morning portfolio brief: signals counted, the book ranked
+  brokers.py       the broker book: the book grouped by placing broker — what each broker owes
   support.py       support grading: how well-backed each current fact is (derived at assembly)
   renewals.py      renewal briefs: the baseline decision, the change ledger, inherited open business
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator

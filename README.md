@@ -288,6 +288,34 @@ ingest → screen → assemble → verify → gate
   is a lens, not a re-ordering — the desk queue keeps its
   own order, and building the brief changes no per-account
   surface.
+- **Group the book by broker** — accounts arrive through
+  brokers, and every ask the desk sends is, in substance,
+  an ask of the account's broker. The **broker book**
+  (`brokers.py`) answers the per-broker question the
+  per-account surfaces cannot: what are we waiting on from
+  this broker, across all their accounts, and how does
+  their book stand? One row per broker — the identity is
+  the `placed_by` edge on each account's own submission,
+  the most recent paper winning, and an account whose
+  paper names no broker groups under an explicit
+  *Unattributed* row, counted, never dropped. Each row
+  carries the broker's accounts, the decided mix off each
+  account's latest decided brief, and what the broker owes:
+  the open asks with their outstanding items listed per
+  account, stale decisions, expiring and lapsed facts,
+  candidates awaiting review, open chases. Every figure is
+  the per-account machinery's own — the portfolio signals,
+  summed — never a second computation. The rows carry one
+  published order (most asks owed first, then stale
+  decisions, then name; the unattributed row last) because
+  the book is a chasing tool, and **no score**: it is a
+  ledger, not a ranking, and the portfolio brief keeps the
+  ranking job. Nothing crosses accounts — a row aggregates
+  counts, and the only text it carries is an ask's own
+  items under that ask's own account. There are no
+  broker-level decisions; the book is read-only, served at
+  `GET /brokers`, in the console, and via the CLI's
+  `brokers` command.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -444,7 +472,18 @@ resolves the baseline's flag and is itself staled by a
 further endorsement, the baseline brief byte-identical
 throughout, an undecided account's renewal refused by name,
 and a seeded-book renewal against a fresh decision carrying
-an empty ledger. The golden cases assert the
+an empty ledger. An eleventh, the **broker book scenario**,
+stages two brokers — one's three accounts carrying two open
+asks, one stale decision, and one expiring fact, the other's
+single account clean — plus an account whose paper names no
+broker, and requires every figure twice: hand-derived from
+the staging, and as the portfolio brief's per-account
+signals over the same world summed per broker; the
+unattributed account grouped and counted, not dropped; the
+published chasing order with no score anywhere; the decided
+briefs byte-identical; and on the seeded book, six broker
+rows in the dataset's own placing counts with totals equal
+to the portfolio brief's. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the
