@@ -165,6 +165,19 @@ the deployment shape — and gates on:
   day outside is absent; regeneration is byte-identical
   with the same digest; composing writes nothing; an empty
   window is an honest empty book. Gate: every check true.
+- **duplicate watch scenario** — the same insured, twice,
+  seeded plus staged. On the seeded book (review pass
+  performed) exactly one pair flags: the two Meridian
+  accounts, corroborated by their two weak signals, evidence
+  asserted value by value. Unverdicted, the pair does not
+  annotate the portfolio brief; a SAME_INSURED verdict
+  annotates it (2 accounts, 1 pair, named) with weights and
+  every row's score and position unchanged, and moves no
+  brief and no fact. Staged: an identical-name pair with no
+  corroboration does not flag and its verdict is refused;
+  a DISTINCT verdict suppresses on the evidence fingerprint
+  and a restated location re-flags the pair as new.
+  Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -339,6 +352,7 @@ def run_offline() -> dict:
     renewal_brief_scenario = run_renewal_brief_scenario(accounts)
     broker_book_scenario = run_broker_book_scenario(accounts)
     decision_book_scenario = run_decision_book_scenario(accounts)
+    duplicate_scenario = run_duplicate_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -358,6 +372,7 @@ def run_offline() -> dict:
         "renewal_brief_scenario": renewal_brief_scenario["passed"],
         "broker_book_scenario": broker_book_scenario["passed"],
         "decision_book_scenario": decision_book_scenario["passed"],
+        "duplicate_scenario": duplicate_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -382,6 +397,7 @@ def run_offline() -> dict:
         "renewal_brief_scenario": renewal_brief_scenario,
         "broker_book_scenario": broker_book_scenario,
         "decision_book_scenario": decision_book_scenario,
+        "duplicate_scenario": duplicate_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -3339,6 +3355,318 @@ def run_decision_book_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_duplicate_scenario(accounts: dict) -> dict:
+    """The duplicate watch, seeded plus staged.
+
+    On the seeded book — ingested, with the desk's review
+    pass performed — exactly one pair must flag: ACC-001
+    "Meridian Casting Co." and ACC-002 "Meridian Castings
+    LLC", similarity over 0.96, corroborated by exactly the
+    two weak signals the planted facts offer (same state,
+    Pennsylvania; same risk-class line, Product liability)
+    — different brokers, different locations, different
+    revenues, so nothing stronger fires. Its evidence is
+    asserted value by value. Before any verdict, the
+    portfolio brief carries no annotation; a SAME_INSURED
+    verdict annotates it (2 accounts, 1 pair, named, with
+    the verdict's actor) while the weights stay the
+    published ones and every row's account, score, and
+    position is unchanged — and the verdict itself leaves
+    every stored brief and every fact byte-identical.
+
+    On a staged pair the DISTINCT path is exercised: the
+    pair suppresses on its evidence fingerprint; a verdict
+    on an identical-name pair with no corroboration is
+    refused by name (a bare similarity never flags, so there
+    is nothing to verdict); a restated location — a material
+    fact change that leaves the pair flagged — re-flags it
+    as new, the old verdict riding as history; and each
+    side's evidence equals that account's own facts read
+    back through the port.
+    """
+    from zep_context_agent import temporal
+    from zep_context_agent.errors import DuplicateError
+    from zep_context_agent.ontology import (
+        EdgeAssertion,
+        FactAssertion,
+        SourceDocument,
+    )
+    from zep_context_agent.portfolio import PORTFOLIO_WEIGHTS
+
+    checks: dict[str, bool] = {}
+
+    def staged_service(staged):
+        service = BriefService(
+            port=OfflineContextGraph(),
+            store=InMemoryBriefStore(),
+            object_store=None,
+            checkpointer=MemorySaver(),
+            cache=None,
+            accounts=staged,
+        )
+        for account_id in sorted(staged):
+            service.ingest(account_id)
+        return service
+
+    def submission(doc_id, account_id, name, location, risk_class, revenue, broker):
+        return SourceDocument(
+            doc_id=doc_id,
+            account_id=account_id,
+            kind="submission",
+            title=f"Submission 2026 — {name}",
+            received_at=date(2026, 5, 20),
+            assertions=[
+                FactAssertion(
+                    predicate=p,
+                    value=v,
+                    unit="USD" if p.endswith("_usd") else "",
+                    valid_from=date(2026, 1, 1),
+                )
+                for p, v in (
+                    ("legal_name", name),
+                    ("risk_class", risk_class),
+                    ("annual_revenue_usd", revenue),
+                    ("primary_location", location),
+                    ("policy_limit_usd", 1000000),
+                    ("claims_count_3yr", 1),
+                )
+            ],
+            edges=[
+                EdgeAssertion(
+                    source_ref=account_id,
+                    edge_type="placed_by",
+                    target_ref=broker,
+                    label=broker,
+                )
+            ],
+        )
+
+    # -- the seeded book ---------------------------------------------------
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=accounts,
+    )
+    for account_id in sorted(accounts):
+        service.ingest(account_id)
+    for account_id in sorted(accounts):
+        for candidate in service.list_candidates(
+            account_id, state="pending"
+        ):
+            service.review_candidate(
+                candidate.candidate_id,
+                account_id=account_id,
+                action="confirm",
+                actor="Eval Desk",
+            )
+    brief = service.assemble("ACC-001", as_of=DATASET_PRESENT)
+    service.decide(
+        brief.brief_id,
+        action="proceed",
+        actor="Eval Underwriter",
+        reason="Scenario: the file as it stood.",
+    )
+
+    watch = service.duplicate_watch(as_of=DATASET_PRESENT)
+    checks["seeded_flags_exactly_the_meridian_pair"] = [
+        (p.account_a, p.account_b) for p in watch.pairs
+    ] == [("ACC-001", "ACC-002")]
+    pair = watch.pairs[0]
+    checks["meridian_evidence_asserted"] = (
+        pair.name_similarity > 0.96
+        and {c.kind for c in pair.corroborators}
+        == {"same_state", "same_risk_line"}
+        and {
+            s.account_id: (
+                s.legal_name,
+                s.primary_location,
+                s.risk_class,
+                s.annual_revenue_usd,
+                s.broker_id,
+            )
+            for s in pair.sides
+        }
+        == {
+            "ACC-001": (
+                "Meridian Casting Co.",
+                "2280 Industrial Pkwy, Pittsburgh, PA",
+                "Product liability — fabricated metal products",
+                21900000.0,
+                "BRK-ALDER",
+            ),
+            "ACC-002": (
+                "Meridian Castings LLC",
+                "77 Quarry Bend, Erie, PA",
+                "Product liability — consumer goods",
+                9600000.0,
+                "BRK-HARBOR",
+            ),
+        }
+    )
+
+    def snapshot():
+        return {
+            "briefs": [b.model_dump_json() for b in service.store.list()],
+            "facts": {
+                aid: [
+                    f.model_dump_json() for f in service.port.get_facts(aid)
+                ]
+                for aid in sorted(accounts)
+            },
+        }
+
+    before = snapshot()
+    portfolio_before = service.portfolio_brief(as_of=DATASET_PRESENT)
+    checks["unverdicted_flag_does_not_annotate"] = (
+        portfolio_before.duplicates.pair_count == 0
+    )
+    service.record_duplicate_verdict(
+        "ACC-001",
+        "ACC-002",
+        verdict="SAME_INSURED",
+        actor="Eval Underwriter",
+        note="One insured, placed through two submissions.",
+    )
+    checks["verdict_moves_nothing"] = snapshot() == before
+    portfolio_after = service.portfolio_brief(as_of=DATASET_PRESENT)
+    annotation = portfolio_after.duplicates
+    checks["confirmed_pair_annotates_named"] = (
+        annotation.pair_count == 1
+        and annotation.account_count == 2
+        and annotation.pairs[0].account_a == "ACC-001"
+        and annotation.pairs[0].account_b == "ACC-002"
+        and annotation.pairs[0].actor == "Eval Underwriter"
+    )
+    checks["weights_and_rows_unchanged"] = (
+        portfolio_after.weights == PORTFOLIO_WEIGHTS
+        and [
+            (r.account_id, r.score) for r in portfolio_after.rows
+        ]
+        == [(r.account_id, r.score) for r in portfolio_before.rows]
+    )
+    watch = service.duplicate_watch(as_of=DATASET_PRESENT)
+    checks["watch_reads_confirmed"] = watch.pairs[0].state == "CONFIRMED_SAME"
+
+    # -- the staged DISTINCT path -------------------------------------------
+    staged = {
+        "ACC-DW1": Account(
+            account_id="ACC-DW1",
+            display_name="Keystone Castings LLC",
+            documents=[
+                submission(
+                    "DOC-DW1-SUB", "ACC-DW1", "Keystone Castings LLC",
+                    "400 Quarry Road, Erie, PA",
+                    "Product liability — fabricated metal products",
+                    12000000, "BRK-EA",
+                )
+            ],
+        ),
+        "ACC-DW2": Account(
+            account_id="ACC-DW2",
+            display_name="Keystone Casting Co.",
+            documents=[
+                submission(
+                    "DOC-DW2-SUB", "ACC-DW2", "Keystone Casting Co.",
+                    "12 Foundry Street, Pittsburgh, PA",
+                    "Product liability — consumer goods",
+                    4000000, "BRK-EB",
+                )
+            ],
+        ),
+        "ACC-DW3": Account(
+            account_id="ACC-DW3",
+            display_name="Harbor Point Logistics LLC",
+            documents=[
+                submission(
+                    "DOC-DW3-SUB", "ACC-DW3", "Harbor Point Logistics LLC",
+                    "1 Dock Way, Seattle, WA",
+                    "Cargo — freight forwarding",
+                    30000000, "BRK-EC",
+                )
+            ],
+        ),
+        "ACC-DW4": Account(
+            account_id="ACC-DW4",
+            display_name="Harbor Point Logistics Inc",
+            documents=[
+                submission(
+                    "DOC-DW4-SUB", "ACC-DW4", "Harbor Point Logistics Inc",
+                    "9 Pier Road, Miami, FL",
+                    "Property — warehousing",
+                    2000000, "BRK-ED",
+                )
+            ],
+        ),
+    }
+    staged_svc = staged_service(staged)
+    watch = staged_svc.duplicate_watch(as_of=date(2026, 6, 1))
+    checks["identical_names_alone_do_not_flag"] = [
+        (p.account_a, p.account_b) for p in watch.pairs
+    ] == [("ACC-DW1", "ACC-DW2")]
+    refused = False
+    try:
+        staged_svc.record_duplicate_verdict(
+            "ACC-DW3",
+            "ACC-DW4",
+            verdict="DISTINCT",
+            actor="Eval Underwriter",
+            note="Different insureds.",
+        )
+    except DuplicateError:
+        refused = True
+    checks["verdict_on_unflagged_pair_refused"] = refused
+
+    # Each side's evidence is that account's own facts.
+    own_ok = True
+    for side in watch.pairs[0].sides:
+        current, _ = temporal.resolve(
+            staged_svc.port.get_facts(side.account_id), date(2026, 6, 1)
+        )
+        own = {f.predicate: f.value for f in current}
+        own_ok = own_ok and (
+            side.legal_name == own["legal_name"]
+            and side.primary_location == own["primary_location"]
+        )
+    checks["evidence_is_each_accounts_own"] = own_ok
+
+    staged_svc.record_duplicate_verdict(
+        "ACC-DW1",
+        "ACC-DW2",
+        verdict="DISTINCT",
+        actor="Eval Underwriter",
+        note="Different insureds — separate Pennsylvania corporations.",
+    )
+    watch = staged_svc.duplicate_watch(as_of=date(2026, 6, 1))
+    checks["distinct_suppresses"] = (
+        watch.pairs[0].state == "DISTINCT" and not watch.pairs[0].reflagged
+    )
+    staged["ACC-DW2"].documents.append(
+        SourceDocument(
+            doc_id="DOC-DW2-END",
+            account_id="ACC-DW2",
+            kind="endorsement",
+            title="Endorsement — location restated, Keystone Casting Co.",
+            received_at=date(2026, 5, 28),
+            assertions=[
+                FactAssertion(
+                    predicate="primary_location",
+                    value="500 Quarry Road, Erie, PA",
+                    valid_from=date(2026, 5, 1),
+                )
+            ],
+        )
+    )
+    staged_svc.ingest("ACC-DW2")
+    watch = staged_svc.duplicate_watch(as_of=date(2026, 6, 1))
+    checks["material_change_reflags"] = (
+        watch.pairs[0].state == "FLAGGED" and watch.pairs[0].reflagged
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -3421,6 +3749,7 @@ def main() -> int:
         ("renewal brief scenario", payload["renewal_brief_scenario"]),
         ("broker book scenario", payload["broker_book_scenario"]),
         ("decision book scenario", payload["decision_book_scenario"]),
+        ("duplicate watch scenario", payload["duplicate_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")
