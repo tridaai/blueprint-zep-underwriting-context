@@ -154,6 +154,17 @@ the deployment shape — and gates on:
   broker rows in the dataset's own placing counts, no
   unattributed row, and totals equal to the portfolio
   brief's. Gate: every check true.
+- **decision book scenario** — the period export, staged.
+  Two accounts act across a fortnight: a decision and its
+  ask, a staleness flag raised and resolved by a renewal
+  decision (marked, baseline named), an item received and
+  the ask completed, a renewal chase sent, a candidate
+  confirmed and another rejected. The book lists each act
+  exactly once, in time order, counts equal to the stores'
+  own reads; the window's bounds are inclusive and an act a
+  day outside is absent; regeneration is byte-identical
+  with the same digest; composing writes nothing; an empty
+  window is an honest empty book. Gate: every check true.
 
 Live runs against a real Zep workspace are opt-in
 (``EVAL_LIVE_ZEP=1`` + ``ZEP_API_KEY``): the golden cases re-run on
@@ -327,6 +338,7 @@ def run_offline() -> dict:
     chase_scenario = run_chase_scenario(accounts)
     renewal_brief_scenario = run_renewal_brief_scenario(accounts)
     broker_book_scenario = run_broker_book_scenario(accounts)
+    decision_book_scenario = run_decision_book_scenario(accounts)
 
     gates = {
         "brief_correctness": brief_rate >= CORRECTNESS_GATE,
@@ -345,6 +357,7 @@ def run_offline() -> dict:
         "chase_scenario": chase_scenario["passed"],
         "renewal_brief_scenario": renewal_brief_scenario["passed"],
         "broker_book_scenario": broker_book_scenario["passed"],
+        "decision_book_scenario": decision_book_scenario["passed"],
     }
     return {
         "backend": "offline",
@@ -368,6 +381,7 @@ def run_offline() -> dict:
         "chase_scenario": chase_scenario,
         "renewal_brief_scenario": renewal_brief_scenario,
         "broker_book_scenario": broker_book_scenario,
+        "decision_book_scenario": decision_book_scenario,
         "gates": gates,
         "passed": all(gates.values()),
     }
@@ -3018,6 +3032,313 @@ def run_broker_book_scenario(accounts: dict) -> dict:
     return {"checks": checks, "passed": all(checks.values())}
 
 
+def run_decision_book_scenario(accounts: dict) -> dict:
+    """The decision book over a staged fortnight.
+
+    Two accounts act across 2026-06-01 → 2026-06-14: a gate
+    decision and the ask it opens, a staleness flag raised and
+    later resolved by a renewal decision (marked, its baseline
+    named), an item received and the ask completed, a renewal
+    chase sent, a candidate confirmed and another rejected —
+    staged through the port and the stores at their recorded
+    moments. The book must list each act exactly once, in
+    time order, with counts equal to the stores' own reads;
+    an act one day before the window is absent, an act on the
+    last day present; regeneration is byte-identical with the
+    same digest; composing writes nothing (every store's
+    records byte-identical across the build, decided briefs
+    included); entries carry only their own account's facts;
+    and an empty window composes to an honest empty book with
+    a digest and zero counts.
+    """
+    from zep_context_agent.ingestion import ingest_document
+    from zep_context_agent.ontology import FactAssertion, SourceDocument
+    from zep_context_agent.schemas import (
+        Brief,
+        BriefDiff,
+        Decision,
+        DiffSuperseded,
+        FollowThroughItem,
+        FollowThroughRecord,
+        RenewalBaseline,
+        RenewalInherited,
+        RenewalLedger,
+        RenewalSection,
+        StalenessRecord,
+    )
+
+    checks: dict[str, bool] = {}
+    start, end = date(2026, 6, 1), date(2026, 6, 14)
+
+    def at(day, hour=9):
+        return datetime(2026, 6, day, hour, tzinfo=timezone.utc)
+
+    def decided(brief_id, account_id, name, moment, **updates):
+        brief = Brief(
+            brief_id=brief_id,
+            account_id=account_id,
+            account_name=name,
+            as_of=date(2026, 6, 1),
+            backend="offline",
+            status="DECIDED",
+            decision=Decision(
+                action="proceed",
+                actor="Eval Underwriter",
+                reason="Scenario: the file as it stood.",
+                decided_at=moment,
+            ),
+            created_at=at(1, 8),
+        )
+        return brief.model_copy(update=updates) if updates else brief
+
+    staged = {
+        "ACC-KB1": Account(
+            account_id="ACC-KB1", display_name="Book Eval One Co", documents=[]
+        ),
+        "ACC-KB2": Account(
+            account_id="ACC-KB2", display_name="Book Eval Two Co", documents=[]
+        ),
+    }
+    service = BriefService(
+        port=OfflineContextGraph(),
+        store=InMemoryBriefStore(),
+        object_store=None,
+        checkpointer=MemorySaver(),
+        cache=None,
+        accounts=staged,
+    )
+    service.store.save(decided("brief-kb1-a", "ACC-KB1", "Book Eval One Co", at(3)))
+    service.store.save(
+        decided(
+            "brief-kb1-b",
+            "ACC-KB1",
+            "Book Eval One Co",
+            at(10),
+            renewal=RenewalSection(
+                baseline=RenewalBaseline(
+                    brief_id="brief-kb1-a",
+                    as_of=date(2026, 6, 1),
+                    action="proceed",
+                    actor="Eval Underwriter",
+                    reason="Scenario: the file as it stood.",
+                    decided_at=at(3),
+                ),
+                ledger=RenewalLedger(),
+                inherited=RenewalInherited(),
+            ),
+        )
+    )
+    service.store.save(
+        decided(
+            "brief-kb2-edge",
+            "ACC-KB2",
+            "Book Eval Two Co",
+            datetime(2026, 6, 14, 23, 30, tzinfo=timezone.utc),
+        )
+    )
+    service.store.save(
+        decided(
+            "brief-kb2-before",
+            "ACC-KB2",
+            "Book Eval Two Co",
+            datetime(2026, 5, 31, 9, tzinfo=timezone.utc),
+        )
+    )
+    service.staleness_store.save(
+        StalenessRecord(
+            record_id="stale-kb1",
+            account_id="ACC-KB1",
+            brief_id="brief-kb1-a",
+            decision_action="proceed",
+            decision_actor="Eval Underwriter",
+            decided_at=at(3),
+            flagged_at=at(4),
+            trigger_episode_ids=["ep-kb1-end"],
+            changes=BriefDiff(
+                previous_brief_id="brief-kb1-a",
+                previous_as_of=date(2026, 6, 1),
+                superseded=[
+                    DiffSuperseded(
+                        predicate="policy_limit_usd",
+                        unit="USD",
+                        previous_value=1000000,
+                        current_value=750000,
+                    )
+                ],
+            ),
+            resolved_by_brief="brief-kb1-b",
+            resolved_at=at(11),
+            resolved_by="Eval Underwriter",
+        )
+    )
+    service.follow_store.save(
+        FollowThroughRecord(
+            record_id="ask-kb1",
+            account_id="ACC-KB1",
+            brief_id="brief-kb1-a",
+            origin="decision",
+            decision_actor="Eval Underwriter",
+            decision_reason="Claims history, please.",
+            decided_at=at(3),
+            created_at=at(3, 10),
+            items=[
+                FollowThroughItem(
+                    kind="predicate",
+                    predicate="claims_count_3yr",
+                    label="Claims history (3 years)",
+                    status="received",
+                    received_episode_id="ep-kb1-clm",
+                    received_at=at(6),
+                )
+            ],
+            status="complete",
+            completed_at=at(6, 11),
+            updated_at=at(6, 11),
+        )
+    )
+    service.follow_store.save(
+        FollowThroughRecord(
+            record_id="ask-kb2-chase",
+            account_id="ACC-KB2",
+            brief_id="brief-kb2-edge",
+            origin="renewal_chase",
+            decision_actor="Eval Desk Lead",
+            decision_reason="The inspection grade is expiring.",
+            decided_at=at(5),
+            created_at=at(5),
+            items=[
+                FollowThroughItem(
+                    kind="renewal",
+                    predicate="inspection_grade",
+                    label="Inspection grade",
+                    expires_on=date(2026, 6, 20),
+                )
+            ],
+            status="open",
+            updated_at=at(5),
+        )
+    )
+    letter = SourceDocument(
+        doc_id="DOC-KB2-COR",
+        account_id="ACC-KB2",
+        kind="correspondence",
+        title="Broker letter — revenue and location",
+        received_at=date(2026, 6, 2),
+        assertions=[
+            FactAssertion(
+                predicate="annual_revenue_usd",
+                value=5400000,
+                unit="USD",
+                valid_from=date(2026, 1, 1),
+            ),
+            FactAssertion(
+                predicate="primary_location",
+                value="9 Elsewhere Road",
+                valid_from=date(2026, 1, 1),
+            ),
+        ],
+    )
+    ingest_document(service.port, letter)
+    by_predicate = {
+        c.predicate: c for c in service.port.get_candidates("ACC-KB2")
+    }
+    service.port.confirm_candidate(
+        "ACC-KB2",
+        by_predicate["annual_revenue_usd"].candidate_id,
+        actor="Eval Underwriter",
+        at=at(8),
+    )
+    service.port.reject_candidate(
+        "ACC-KB2",
+        by_predicate["primary_location"].candidate_id,
+        actor="Eval Underwriter",
+        reason="Contradicts the filed submission.",
+        at=at(9),
+    )
+
+    def snapshot():
+        return {
+            "briefs": [b.model_dump_json() for b in service.store.list()],
+            "staleness": [
+                r.model_dump_json() for r in service.staleness_store.list()
+            ],
+            "follow": [
+                r.model_dump_json() for r in service.follow_store.list()
+            ],
+            "candidates": {
+                aid: [
+                    c.model_dump_json()
+                    for c in service.port.get_candidates(aid)
+                ]
+                for aid in staged
+            },
+        }
+
+    before = snapshot()
+    book = service.decision_book(start, end)
+    kinds = [e.kind for e in book.entries]
+    checks["acts_once_in_order"] = kinds == [
+        "decision",
+        "ask_opened",
+        "staleness_raised",
+        "chase_sent",
+        "ask_received",
+        "ask_completed",
+        "review_confirmed",
+        "review_rejected",
+        "decision",
+        "staleness_resolved",
+        "decision",
+    ]
+    checks["counts_match_the_stores"] = book.counts == {
+        "decision": 3,
+        "review_confirmed": 1,
+        "review_rejected": 1,
+        "staleness_raised": 1,
+        "staleness_resolved": 1,
+        "ask_opened": 1,
+        "chase_sent": 1,
+        "ask_received": 1,
+        "ask_completed": 1,
+    } and book.total == 11
+    checks["bounds_inclusive_outside_absent"] = (
+        any(e.brief_id == "brief-kb2-edge" for e in book.entries)
+        and all(e.brief_id != "brief-kb2-before" for e in book.entries)
+    )
+    renewal_entries = [
+        e for e in book.entries if e.kind == "decision" and e.renewal
+    ]
+    checks["renewal_marked_with_baseline"] = (
+        len(renewal_entries) == 1
+        and renewal_entries[0].brief_id == "brief-kb1-b"
+        and renewal_entries[0].baseline_brief_id == "brief-kb1-a"
+    )
+    checks["chase_not_double_counted"] = (
+        book.counts["ask_opened"] == 1 and book.counts["chase_sent"] == 1
+    )
+    checks["no_cross_account_text"] = all(
+        ("ACC-KB2" not in e.summary and "Book Eval Two" not in e.summary)
+        if e.account_id == "ACC-KB1"
+        else ("ACC-KB1" not in e.summary and "Book Eval One" not in e.summary)
+        for e in book.entries
+    )
+    second = service.decision_book(start, end)
+    checks["byte_stable_same_digest"] = (
+        second.model_dump_json() == book.model_dump_json()
+        and second.digest == book.digest
+        and len(book.digest) == 64
+    )
+    checks["composing_writes_nothing"] = snapshot() == before
+    empty = service.decision_book(date(2027, 1, 1), date(2027, 1, 7))
+    checks["empty_window_honest"] = (
+        empty.entries == []
+        and empty.total == 0
+        and all(n == 0 for n in empty.counts.values())
+        and len(empty.digest) == 64
+    )
+    return {"checks": checks, "passed": all(checks.values())}
+
+
 def run_live() -> dict | None:
     """Opt-in live run against a real Zep workspace. Reported only."""
     if os.environ.get("EVAL_LIVE_ZEP") != "1":
@@ -3099,6 +3420,7 @@ def main() -> int:
         ("renewal chase scenario", payload["chase_scenario"]),
         ("renewal brief scenario", payload["renewal_brief_scenario"]),
         ("broker book scenario", payload["broker_book_scenario"]),
+        ("decision book scenario", payload["decision_book_scenario"]),
     ):
         failed = [k for k, ok in scenario["checks"].items() if not ok]
         print(f"{label}: {'PASS' if scenario['passed'] else 'FAIL ' + ', '.join(failed)}")

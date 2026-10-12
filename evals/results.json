@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-12T01:00:35.066375+00:00",
+  "generated_at": "2026-10-12T01:58:48.874299+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -537,6 +537,20 @@
     },
     "passed": true
   },
+  "decision_book_scenario": {
+    "checks": {
+      "acts_once_in_order": true,
+      "counts_match_the_stores": true,
+      "bounds_inclusive_outside_absent": true,
+      "renewal_marked_with_baseline": true,
+      "chase_not_double_counted": true,
+      "no_cross_account_text": true,
+      "byte_stable_same_digest": true,
+      "composing_writes_nothing": true,
+      "empty_window_honest": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -553,7 +567,8 @@
     "support_scenario": true,
     "chase_scenario": true,
     "renewal_brief_scenario": true,
-    "broker_book_scenario": true
+    "broker_book_scenario": true,
+    "decision_book_scenario": true
   },
   "passed": true
 }
