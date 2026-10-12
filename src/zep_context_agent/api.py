@@ -48,6 +48,7 @@ from .errors import (
     DecisionError,
     FollowThroughError,
     IngestionInProgress,
+    RenewalError,
     ReviewError,
 )
 from .observability import configure_json_logging, new_request_id, request_id_ctx
@@ -140,6 +141,10 @@ def create_app(service: BriefService | None = None) -> FastAPI:
 
     @app.exception_handler(ChaseError)
     def chase_handler(request: Request, exc: ChaseError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(RenewalError)
+    def renewal_handler(request: Request, exc: RenewalError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(ReviewError)
@@ -417,7 +422,16 @@ def create_app(service: BriefService | None = None) -> FastAPI:
 
     @app.post("/briefs", status_code=201)
     def assemble(request: AssembleRequest) -> dict:
-        brief = svc.assemble(request.account_id, as_of=request.as_of)
+        """Assemble a brief and stop at the gate. ``mode`` is
+        "standard" (the default) or "renewal" — a renewal is
+        assembled against the account's last decision and
+        carries its baseline, the change ledger since it, and
+        the open business inherited (see renewals.py). A
+        renewal with no decided brief to renew against is a
+        409 naming the cause; it assembles nothing."""
+        brief = svc.assemble(
+            request.account_id, as_of=request.as_of, mode=request.mode
+        )
         return brief.model_dump(mode="json")
 
     @app.get("/briefs")
@@ -430,6 +444,10 @@ def create_app(service: BriefService | None = None) -> FastAPI:
                 "as_of": b.as_of.isoformat(),
                 "status": b.status,
                 "decision": b.decision.action if b.decision else None,
+                "renewal": b.renewal is not None,
+                "renewal_baseline": (
+                    b.renewal.baseline.brief_id if b.renewal else None
+                ),
                 "created_at": b.created_at.isoformat(),
             }
             for b in svc.list_briefs(account_id)

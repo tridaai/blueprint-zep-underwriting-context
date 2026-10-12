@@ -71,6 +71,19 @@ class ChaseError(ContextError):
     record and changes no state."""
 
 
+class RenewalError(ContextError):
+    """A renewal brief that cannot be assembled.
+
+    Renewal assembly (see renewals.py) decides a returning
+    account against its last decision, so it needs one: an
+    account with no DECIDED brief on or before the requested
+    date — never briefed, briefed but never decided, or
+    decided only later than the date — has nothing to renew
+    against, and the request is refused by name rather than
+    quietly served as a standard brief. A refused renewal
+    assembles nothing and stores nothing."""
+
+
 class ReviewError(ContextError):
     """A review-gate action that cannot be taken.
 

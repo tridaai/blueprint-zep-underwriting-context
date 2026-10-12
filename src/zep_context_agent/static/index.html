@@ -184,7 +184,8 @@ async function showQueue() {
         <span class="pill ${STATE_PILL[e.state]}">${STATE_LABEL[e.state] || e.state}</span>
         <span class="pill">${e.account_id}</span>
         ${e.ready_for_review ? `<span class="pill ok">READY FOR REVIEW</span>` : ""}
-        ${e.brief_id ? `<span class="small">latest brief ${e.brief_id}${e.brief_as_of ? " · as of " + e.brief_as_of : ""}</span>` : ""}
+        ${e.brief_is_renewal ? `<span class="pill warn">RENEWAL</span>` : ""}
+        ${e.brief_id ? `<span class="small">latest brief ${e.brief_id}${e.brief_as_of ? " · as of " + e.brief_as_of : ""}${e.brief_is_renewal ? " — assembled as a renewal, against the last decision" : ""}</span>` : ""}
       </div>`;
     if (e.decision) {
       html += `<div class="small" style="margin-top:6px">Decision: ${e.decision.action} by ${e.decision.actor}${e.decision.decided_on ? " on " + e.decision.decided_on : ""}</div>`;
@@ -300,8 +301,10 @@ async function selectAccount(accountId) {
     <div class="row">
       <button class="action secondary" id="btn-ingest">Ingest into context graph</button>
       <button class="action" id="btn-assemble">Assemble brief</button>
+      <button class="action secondary" id="btn-assemble-renewal">Assemble renewal brief</button>
       <span class="small" id="ingest-status"></span>
     </div>
+    <p class="small">A renewal brief is decided against the account's last decision: it carries that decision as its baseline, the change ledger since it, and the open business it inherits. It needs a decided brief to renew against — with none, the request is refused by name.</p>
     <div id="briefs-list"></div>
     <div id="brief-view"></div>
     <div id="watch-view"></div>
@@ -334,6 +337,20 @@ async function selectAccount(accountId) {
       showBrief(brief);
     } catch (e) { s.textContent = "Error: " + e.message; }
   };
+  $("#btn-assemble-renewal").onclick = async () => {
+    const s = $("#ingest-status");
+    s.textContent = "assembling renewal…";
+    try {
+      const brief = await api("/briefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id: accountId, mode: "renewal" }),
+      });
+      s.textContent = "";
+      await selectAccount(accountId);
+      showBrief(brief);
+    } catch (e) { s.textContent = "Error: " + e.message; }
+  };
   loadWatchCard(accountId);
   loadChasesCard(accountId);
   loadTimeline(accountId);
@@ -345,7 +362,8 @@ async function selectAccount(accountId) {
       row.className = "row";
       row.style.marginBottom = "6px";
       row.innerHTML = `<span class="pill ${b.status === 'AWAITING_UNDERWRITER' ? 'warn' : 'ok'}">${b.status}</span>
-        <span>${b.brief_id}</span><span class="small">as of ${b.as_of}${b.decision ? " · " + b.decision : ""}</span>`;
+        ${b.renewal ? `<span class="pill warn">RENEWAL</span>` : ""}
+        <span>${b.brief_id}</span><span class="small">as of ${b.as_of}${b.decision ? " · " + b.decision : ""}${b.renewal ? " · renewal of " + b.renewal_baseline : ""}</span>`;
       const btn = document.createElement("button");
       btn.className = "action secondary";
       btn.textContent = "Open";
@@ -600,6 +618,26 @@ function softSpotsCard(brief) {
   return `<div class="card warn"><strong>Soft spots — thin support, verify before relying</strong><ul>${items}</ul><div class="small">Grades: STRONG — the system's own record, or filed paper a second document corroborates. STANDARD — a single filed document, or a broker's letter with corroboration. THIN — a single correspondence source, or a value standing where an earlier value was replaced. A grade is information for the underwriter; it changes no gate.</div></div>`;
 }
 
+function renewalCard(brief) {
+  const r = brief.renewal;
+  const b = r.baseline;
+  const l = r.ledger;
+  const changes = [
+    ...l.new_facts.map(f => `<li>+ new: <strong>${f.predicate}</strong>${f.entity_ref ? ` [${f.entity_ref}]` : ""} — ${fmtVal(f.value, f.unit)} <span class="cite">[source: ${f.doc_title} (${f.doc_id})]</span></li>`),
+    ...l.superseded.map(c => `<li>~ superseded: <strong>${c.predicate}</strong>${c.entity_ref ? ` [${c.entity_ref}]` : ""} — ${fmtVal(c.previous_value, c.unit)} → ${c.current_value === null || c.current_value === undefined ? "no current successor" : fmtVal(c.current_value, c.unit)} <span class="cite">[was: ${c.previous_doc_id}; now: ${c.current_doc_id}]</span></li>`),
+    ...l.lapsed.map(f => `<li>− lapsed: <strong>${f.predicate}</strong>${f.entity_ref ? ` [${f.entity_ref}]` : ""} — ${fmtVal(f.value, f.unit)}, current at the decision, not current now <span class="cite">[was source: ${f.doc_title} (${f.doc_id})]</span></li>`),
+  ];
+  const inherited = [
+    ...r.inherited.open_asks.map(a => `<li>ask <strong>${a.record_id}</strong> (${a.origin === "renewal_chase" ? "renewal chase" : "request-info decision"}, on brief ${a.brief_id}): <strong>${a.status}</strong> — ${a.received_count} of ${a.total_count} items received, opened by ${a.opened_by}. The renewal does not answer or close it.</li>`),
+    ...r.inherited.open_staleness.map(s => `<li>stale decision: brief <strong>${s.brief_id}</strong> (${s.decision_action} by ${s.decision_actor}) flagged ${String(s.flagged_at).slice(0, 10)} — still open; it clears only when this renewal is decided.</li>`),
+  ];
+  return `<div class="card warn" style="margin-top:14px"><strong>Renewal — decided against the last decision</strong>
+    <div class="small" style="margin-top:6px">Baseline: brief <strong>${b.brief_id}</strong> (as of ${b.as_of}) — <strong>${b.action}</strong> by ${b.actor} at ${String(b.decided_at).slice(0, 10)}: “${b.reason}”. The baseline decision is context for this one — never carried, never implied; the gate below takes a fresh decision on this brief.</div>
+    <div style="margin-top:8px"><strong>Change ledger since that decision</strong>${changes.length ? `<ul>${changes.join("")}</ul>` : `<div class="small">No changes — the facts stand as the decision left them.</div>`}<div class="small">= unchanged: ${l.unchanged_count} fact(s) stand exactly as decided (counted, not listed — the ledger is about change).</div></div>
+    <div style="margin-top:8px"><strong>Open business inherited</strong>${inherited.length ? `<ul>${inherited.join("")}</ul>` : `<div class="small">None — no open asks, no open staleness flags.</div>`}</div>
+  </div>`;
+}
+
 function showBrief(brief) {
   currentBrief = brief;
   const el = $("#brief-view");
@@ -609,6 +647,7 @@ function showBrief(brief) {
       <div class="row">
         <h2 style="margin:0">Brief ${brief.brief_id}</h2>
         <span class="pill ${brief.status === 'AWAITING_UNDERWRITER' ? 'warn' : 'ok'}">${brief.status}</span>
+        ${brief.renewal ? `<span class="pill warn">RENEWAL</span>` : ""}
         <span class="pill">as of ${brief.as_of}</span>
         <span class="pill">backend: ${brief.backend}</span>
         <a class="small" href="/briefs/${brief.brief_id}/export?format=text" target="_blank">Export text ↓</a>
@@ -617,6 +656,7 @@ function showBrief(brief) {
       <p class="narrative" style="margin-top:12px"></p>
       <div class="small">Narrative source: ${brief.narrative_source} — prose about the facts, never a source of them.</div>
     </div>
+    ${brief.renewal ? renewalCard(brief) : ""}
     <h2>Current facts (${brief.current_facts.length})</h2>
     <table><tr><th>Predicate</th><th>Value</th><th>In force</th><th>Citation</th><th>Support</th></tr>
     ${factRows(brief.current_facts, false) || '<tr><td colspan="5" class="small">None resolved.</td></tr>'}</table>

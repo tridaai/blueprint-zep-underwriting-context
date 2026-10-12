@@ -34,6 +34,7 @@ from langgraph.types import interrupt
 
 from . import assembly, decisions, diffing, guardrails, ingestion, narrate
 from . import followthrough as follow_mod
+from . import renewals as renewals_mod
 from . import staleness as staleness_mod
 from .ontology import Account
 from .ports import ContextPort
@@ -61,6 +62,13 @@ class BriefState(TypedDict, total=False):
     brief_id: str
     brief: dict[str, Any]
     status: str
+    # Assembly mode: "standard" (the default) or "renewal" —
+    # a renewal brief is assembled against the account's last
+    # decision (see renewals.py). The mode rides the state so
+    # the verify step attaches the renewal section to the very
+    # payload the gate later resumes: a decision recorded on
+    # resume can never overwrite it.
+    mode: str
 
 
 # -- shared steps ------------------------------------------------------------
@@ -104,7 +112,9 @@ def step_assemble(
     return narrate.narrate(brief)
 
 
-def step_verify(runtime: Runtime, brief: Brief) -> Brief:
+def step_verify(
+    runtime: Runtime, brief: Brief, mode: str = "standard"
+) -> Brief:
     facts = runtime.port.get_facts(brief.account_id)
     citations_complete, leakage_free, violations = guardrails.check_brief(
         account_id=brief.account_id,
@@ -130,17 +140,33 @@ def step_verify(runtime: Runtime, brief: Brief) -> Brief:
     # attach_diff re-saves with the diff attached; a first brief
     # keeps diff=None and the surfaces say so.
     diffing.attach_diff(runtime.store, brief)
+    if mode == "renewal":
+        # A renewal brief carries its baseline: the account's
+        # last decision, the change ledger since it, and the
+        # open business inherited (see renewals.py). Attached
+        # here — beside the diff, inside the pipeline — so the
+        # payload the gate resumes already carries it.
+        renewals_mod.attach_renewal(
+            brief_store=runtime.store,
+            staleness_store=runtime.staleness_store,
+            follow_store=runtime.follow_store,
+            brief=brief,
+        )
     return brief
 
 
 def run_pipeline(
-    runtime: Runtime, account: Account, as_of: date, brief_id: str
+    runtime: Runtime,
+    account: Account,
+    as_of: date,
+    brief_id: str,
+    mode: str = "standard",
 ) -> Brief:
     """ingest → assemble → verify, without the gate (the
     no-checkpointer path and the graph's first three nodes)."""
     step_ingest(runtime, account)
     brief = step_assemble(runtime, account, as_of, brief_id)
-    return step_verify(runtime, brief)
+    return step_verify(runtime, brief, mode)
 
 
 # -- graph -------------------------------------------------------------------
@@ -161,7 +187,11 @@ def build_graph(runtime: Runtime, checkpointer=None):
         return {"brief": brief.model_dump(mode="json")}
 
     def verify_node(state: BriefState) -> dict:
-        brief = step_verify(runtime, Brief.model_validate(state["brief"]))
+        brief = step_verify(
+            runtime,
+            Brief.model_validate(state["brief"]),
+            state.get("mode", "standard"),
+        )
         return {"brief": brief.model_dump(mode="json"), "status": brief.status}
 
     def gate_node(state: BriefState) -> dict:

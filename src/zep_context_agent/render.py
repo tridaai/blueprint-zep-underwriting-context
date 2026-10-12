@@ -28,6 +28,84 @@ def render_brief_text(brief: Brief) -> str:
         f"context backend: {brief.backend} · brief {brief.brief_id}"
     )
     lines.append(f"Status: {brief.status}")
+    if brief.renewal is not None:
+        renewal = brief.renewal
+        base = renewal.baseline
+        ledger = renewal.ledger
+        lines.append("")
+        lines.append("RENEWAL — DECIDED AGAINST THE LAST DECISION")
+        lines.append(
+            f"  Baseline: brief {base.brief_id} (as of "
+            f"{base.as_of.isoformat()}) — {base.action} by {base.actor} "
+            f"at {base.decided_at.isoformat()}: \"{base.reason}\""
+        )
+        lines.append("  CHANGE LEDGER SINCE THAT DECISION")
+        if not (ledger.new_facts or ledger.superseded or ledger.lapsed):
+            lines.append(
+                "    No changes — the facts stand as the decision "
+                "left them."
+            )
+        for fact in ledger.new_facts:
+            ref = f" [{fact.entity_ref}]" if fact.entity_ref else ""
+            lines.append(
+                f"    + new: {fact.predicate}{ref}: "
+                f"{_value(fact.value, fact.unit)} "
+                f"[source: {fact.doc_title} ({fact.doc_id})]"
+            )
+        for change in ledger.superseded:
+            ref = f" [{change.entity_ref}]" if change.entity_ref else ""
+            now = (
+                _value(change.current_value, change.unit)
+                if change.current_value is not None
+                else "no current successor"
+            )
+            lines.append(
+                f"    ~ superseded: {change.predicate}{ref}: "
+                f"{_value(change.previous_value, change.unit)} → {now} "
+                f"[was: {change.previous_doc_id}; now: "
+                f"{change.current_doc_id}]"
+            )
+        for fact in ledger.lapsed:
+            ref = f" [{fact.entity_ref}]" if fact.entity_ref else ""
+            lines.append(
+                f"    - lapsed: {fact.predicate}{ref}: "
+                f"{_value(fact.value, fact.unit)} — current at the "
+                f"decision, not current now "
+                f"[was source: {fact.doc_title} ({fact.doc_id})]"
+            )
+        lines.append(
+            f"    = unchanged: {ledger.unchanged_count} fact(s) stand "
+            "exactly as decided (counted, not listed)"
+        )
+        lines.append("  OPEN BUSINESS INHERITED")
+        inherited = renewal.inherited
+        if not (inherited.open_asks or inherited.open_staleness):
+            lines.append(
+                "    None — no open asks, no open staleness flags."
+            )
+        for ask in inherited.open_asks:
+            origin = (
+                "renewal chase"
+                if ask.origin == "renewal_chase"
+                else "request-info decision"
+            )
+            lines.append(
+                f"    - ask {ask.record_id} ({origin}, on brief "
+                f"{ask.brief_id}): {ask.status} — "
+                f"{ask.received_count} of {ask.total_count} items "
+                f"received; opened by {ask.opened_by} on "
+                f"{ask.opened_at.date().isoformat()}. The renewal "
+                "does not answer or close it."
+            )
+        for flag in inherited.open_staleness:
+            lines.append(
+                f"    - stale decision: brief {flag.brief_id} "
+                f"({flag.decision_action} by {flag.decision_actor}, "
+                f"decided {flag.decided_at.date().isoformat()}) "
+                f"flagged {flag.flagged_at.date().isoformat()} — "
+                "still open; it clears only when this renewal is "
+                "decided."
+            )
     lines.append("")
     lines.append("SUMMARY (narrative — not a source of facts)")
     lines.append(f"[{brief.narrative_source}] {brief.narrative}")

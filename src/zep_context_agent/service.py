@@ -7,6 +7,10 @@ matter:
 
 - :meth:`assemble` — run the pipeline for one account up to the
   gate and return the stored brief (``AWAITING_UNDERWRITER``).
+  In renewal mode (see :mod:`renewals`) the brief is assembled
+  against the account's last decision; the mode is refused by
+  name, before any pipeline work runs, when the account has no
+  decided brief to renew against.
 - :meth:`decide` — record the underwriter's decision. With a
   checkpointer, this *resumes* the paused graph thread and the
   graph records the decision; without one, the service applies
@@ -32,6 +36,7 @@ from langgraph.types import Command
 from . import cache as cache_mod
 from . import decisions
 from . import followthrough as follow_mod
+from . import renewals as renewals_mod
 from . import review as review_mod
 from . import staleness as staleness_mod
 from .checkpoints import get_checkpointer
@@ -42,6 +47,7 @@ from .errors import (
     DecisionError,
     FollowThroughError,
     IngestionInProgress,
+    RenewalError,
     ReviewError,
 )
 from .followthrough import default_follow_store
@@ -453,16 +459,40 @@ class BriefService:
             return None
         return self._caching_port.facts_version(account_id)
 
-    def assemble(self, account_id: str, as_of: date | None = None) -> Brief:
+    def assemble(
+        self,
+        account_id: str,
+        as_of: date | None = None,
+        *,
+        mode: str = "standard",
+    ) -> Brief:
         account = self.get_account(account_id)
         as_of = as_of or date.today()
+        if mode not in ("standard", "renewal"):
+            raise RenewalError(
+                f"Unknown assembly mode {mode!r}: 'standard' or 'renewal'."
+            )
+        if mode == "renewal":
+            # The refusal comes first, before any pipeline work:
+            # a renewal with nothing to renew against assembles
+            # nothing and stores nothing (see renewals.py). The
+            # pipeline re-finds the same baseline when it
+            # attaches the section — the store cannot move
+            # between the two reads inside one assembly.
+            renewals_mod.require_baseline(self.store, account_id, as_of)
         # Brief cache: keyed by account + facts-version + as-of, so a
         # hit is only possible when no episode has been ingested for
         # this account since the brief was assembled. Any ingestion —
         # including a gate decision's memo — bumps the version and
-        # orphans the entry.
+        # orphans the entry. The key has no mode dimension, and a
+        # renewal brief is a different payload for the same key —
+        # so renewal assemblies bypass the payload cache on both
+        # sides: a renewal is never served the standard brief, and
+        # never stored where a standard assembly would find it.
+        # (The port-level retrieval cache underneath is keyed on
+        # facts and unaffected — it serves both modes alike.)
         version = self._facts_version(account_id)
-        if self.cache is not None and version is not None:
+        if mode == "standard" and self.cache is not None and version is not None:
             raw = self.cache.get(cache_mod.brief_key(account_id, version, as_of))
             if raw is not None:
                 try:
@@ -477,6 +507,7 @@ class BriefService:
                         "account_id": account_id,
                         "as_of": as_of.isoformat(),
                         "brief_id": brief_id,
+                        "mode": mode,
                     },
                     config={"configurable": {"thread_id": brief_id}},
                 )
@@ -484,8 +515,10 @@ class BriefService:
                 if brief is None:  # pragma: no cover - verify always saves
                     raise RuntimeError(f"Pipeline produced no brief {brief_id}.")
             else:
-                brief = run_pipeline(self.runtime, account, as_of, brief_id)
-        if self.cache is not None:
+                brief = run_pipeline(
+                    self.runtime, account, as_of, brief_id, mode
+                )
+        if mode == "standard" and self.cache is not None:
             version = self._facts_version(account_id)
             if version is not None:
                 try:

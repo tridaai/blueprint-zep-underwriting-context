@@ -394,6 +394,11 @@ def build_desk_queue(
             entry.brief_id = latest.brief_id
             entry.brief_status = latest.status
             entry.brief_as_of = latest.as_of
+            # Was the latest brief assembled as a renewal (see
+            # renewals.py)? A display annotation under the same
+            # discipline as the watch and the thin count — the
+            # ordering below never reads it.
+            entry.brief_is_renewal = latest.renewal is not None
             if latest.decision is not None:
                 entry.decision = DeskDecision(
                     action=latest.decision.action,

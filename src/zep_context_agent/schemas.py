@@ -157,6 +157,96 @@ class Decision(BaseModel):
     decided_at: datetime
 
 
+class RenewalBaseline(BaseModel):
+    """The last decision a renewal brief is decided against
+    (see :mod:`renewals`): the decided brief's identity and its
+    gate decision, quoted from that brief's record — the brief
+    itself is never edited to carry this; the quotation lives
+    on the renewal."""
+
+    brief_id: str
+    as_of: date  # the baseline brief's as-of
+    action: DecisionAction
+    actor: str
+    reason: str  # the decider's rationale, quoted from the record
+    decided_at: datetime
+
+
+class RenewalLedger(BaseModel):
+    """The change ledger since the baseline decision, computed
+    in code over the two briefs' stored payloads in the brief
+    diff's idiom (see :mod:`renewals`): facts new since the
+    decision, facts superseded (the value the decision rested
+    on, handed off to the value standing now, both documents
+    cited), facts lapsed since (current at the decision, not
+    current now — the window closed with no successor in
+    force), and the facts that stand exactly as decided,
+    counted rather than listed: the ledger is about change.
+    The baseline decision's own echo — the ``underwriter_
+    decision`` fact its decision memo planted — is not a new
+    fact; it is the baseline, shown in the baseline block."""
+
+    new_facts: list[DiffFact] = Field(default_factory=list)
+    superseded: list[DiffSuperseded] = Field(default_factory=list)
+    lapsed: list[DiffFact] = Field(default_factory=list)
+    unchanged_count: int = 0
+
+
+class RenewalOpenAsk(BaseModel):
+    """A still-open follow-through ask inherited by a renewal
+    brief: named with its state, never answered, closed, or
+    altered by the renewal — the ask's own record is the only
+    place its state changes."""
+
+    record_id: str
+    brief_id: str  # the brief the ask rides on
+    origin: Literal["decision", "renewal_chase"]
+    status: Literal["open", "partially_received"]
+    received_count: int
+    total_count: int
+    opened_by: str
+    opened_at: datetime
+
+
+class RenewalOpenStaleness(BaseModel):
+    """An open staleness record touching the account, inherited
+    by a renewal brief: the stale decision it refers to and
+    when the watch flagged it. The renewal decision — like any
+    fresh decision — is what resolves it; assembling the
+    renewal does not."""
+
+    record_id: str
+    brief_id: str  # the DECIDED brief whose facts went stale
+    decision_action: str
+    decision_actor: str
+    decided_at: datetime
+    flagged_at: datetime
+
+
+class RenewalInherited(BaseModel):
+    """The open business a renewal brief inherits: the asks
+    still waiting on the broker and the staleness flags still
+    open on the account, read from the stores that own them at
+    assembly time."""
+
+    open_asks: list[RenewalOpenAsk] = Field(default_factory=list)
+    open_staleness: list[RenewalOpenStaleness] = Field(default_factory=list)
+
+
+class RenewalSection(BaseModel):
+    """A brief assembled AS a renewal (see :mod:`renewals`):
+    the baseline decision it is decided against, the change
+    ledger since that decision, and the open business it
+    inherits. ``None`` on a standard brief — standard assembly
+    is untouched by the mode's existence. The section is
+    computed at assembly and stored on the renewal brief; the
+    baseline brief's record is read, never written."""
+
+    baseline: RenewalBaseline
+    ledger: RenewalLedger
+    inherited: RenewalInherited
+
+
 class AuditEntry(BaseModel):
     at: datetime
     event: str
@@ -183,6 +273,13 @@ class Brief(BaseModel):
     flags: list[str] = Field(default_factory=list)
     verification: VerificationResult | None = None
     diff: BriefDiff | None = None
+    # Set only on a brief assembled in renewal mode (see
+    # :mod:`renewals`): the last decision it is decided
+    # against, the change ledger since it, and the open
+    # business inherited. ``None`` on every standard brief,
+    # and on briefs stored before renewal assembly existed —
+    # the record is never rewritten to add one.
+    renewal: RenewalSection | None = None
     decision: Decision | None = None
     audit: list[AuditEntry] = Field(default_factory=list)
     created_at: datetime
@@ -534,6 +631,11 @@ class DeskQueueEntry(BaseModel):
     brief_id: str | None = None  # the account's latest brief
     brief_status: str | None = None
     brief_as_of: date | None = None
+    # The account's latest brief was assembled as a renewal
+    # (see :mod:`renewals`) — it is being decided against the
+    # account's last decision. An annotation like the watch:
+    # the queue's order never reads it.
+    brief_is_renewal: bool = False
     decision: DeskDecision | None = None
     staleness: DeskStaleness | None = None
     # The request-info ask riding on the account's latest DECIDED
@@ -655,6 +757,13 @@ class PortfolioBrief(BaseModel):
 class AssembleRequest(BaseModel):
     account_id: str
     as_of: date | None = None
+    # "standard" (the default — the brief as it has always
+    # assembled) or "renewal" (decide against the account's
+    # last decision; see :mod:`renewals`). Renewal mode is an
+    # explicit request, never a silent behaviour change, and
+    # is refused by name when the account has no decided brief
+    # to renew against.
+    mode: Literal["standard", "renewal"] = "standard"
 
 
 class DecisionRequest(BaseModel):

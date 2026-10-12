@@ -5,7 +5,7 @@ serves — for operators and for smoke runs:
 
     zep-context-agent accounts
     zep-context-agent ingest ACC-001
-    zep-context-agent brief ACC-001 [--as-of 2026-06-01]
+    zep-context-agent brief ACC-001 [--as-of 2026-06-01] [--renewal]
     zep-context-agent decide <brief_id> proceed --actor "…" --reason "…"
     zep-context-agent show <brief_id>
     zep-context-agent queue
@@ -58,6 +58,13 @@ def main(argv: list[str] | None = None) -> int:
     p_brief = sub.add_parser("brief", help="Assemble a brief and stop at the gate")
     p_brief.add_argument("account_id")
     p_brief.add_argument("--as-of", type=date.fromisoformat, default=None)
+    p_brief.add_argument(
+        "--renewal",
+        action="store_true",
+        help="Assemble as a renewal: against the account's last "
+        "decision, with its change ledger and inherited open "
+        "business (refused by name when nothing was decided)",
+    )
 
     p_decide = sub.add_parser("decide", help="Record the underwriter's decision")
     p_decide.add_argument("brief_id")
@@ -160,7 +167,11 @@ def main(argv: list[str] | None = None) -> int:
             if quarantined:
                 print(f"quarantined: {', '.join(quarantined)}")
         elif args.command == "brief":
-            brief = service.assemble(args.account_id, as_of=args.as_of)
+            brief = service.assemble(
+                args.account_id,
+                as_of=args.as_of,
+                mode="renewal" if args.renewal else "standard",
+            )
             print(render_brief_text(brief))
         elif args.command == "decide":
             brief = service.decide(
@@ -178,6 +189,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "queue":
             for entry in service.desk_queue():
                 line = f"{entry.account_id}  {entry.state}"
+                if entry.brief_is_renewal:
+                    line += "  RENEWAL (latest brief)"
                 if entry.decision is not None:
                     line += (
                         f"  {entry.decision.action} by "
