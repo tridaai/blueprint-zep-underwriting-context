@@ -94,6 +94,15 @@ class ReviewError(ContextError):
     edited by a refused action."""
 
 
+class DecisionBookError(ContextError):
+    """A decision book that cannot be composed as asked.
+
+    The one refusal is an empty period — a start after the end.
+    The book is a pure projection and refuses nothing else: an
+    empty window composes to an honest empty book, not an
+    error."""
+
+
 class IngestionInProgress(ContextError):
     """Another worker holds this account's ingestion lock.
 

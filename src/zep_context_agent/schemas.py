@@ -850,6 +850,83 @@ class BrokerBook(BaseModel):
     rows: list[BrokerRow] = Field(default_factory=list)
 
 
+class DecisionBookEntry(BaseModel):
+    """One governed act in the decision book (see
+    :mod:`decisionbook`): the moment it was recorded, the
+    account it belongs to, the human who acted where a human
+    acted, a composed summary in the owning surface's own
+    terms, and the source record's identity — the brief, ask,
+    staleness record, or candidate a reviewer opens to see
+    the act on its own surface. An entry carries only its own
+    account's facts; nothing crosses accounts into a line."""
+
+    at: datetime
+    kind: Literal[
+        "decision",
+        "review_confirmed",
+        "review_rejected",
+        "staleness_raised",
+        "staleness_resolved",
+        "ask_opened",
+        "chase_sent",
+        "ask_received",
+        "ask_completed",
+    ]
+    account_id: str
+    account_name: str
+    actor: str = ""  # empty where the act is the system's, not a human's
+    summary: str
+    brief_id: str = ""
+    record_id: str = ""  # staleness / follow-through record id
+    candidate_id: str = ""
+    action: str = ""  # decision entries: the gate action
+    renewal: bool = False  # decision entries: a renewal brief's decision
+    baseline_brief_id: str = ""  # renewal decisions: the baseline brief
+
+
+class DecisionBookUndated(BaseModel):
+    """A record claiming a completed act whose moment is
+    missing (see :mod:`decisionbook`). Unreachable through the
+    service — every act stamps its moment as it lands — but a
+    store that somehow holds one is reported here, named and
+    counted, never silently dropped and never given a date it
+    does not carry."""
+
+    kind: str
+    account_id: str
+    account_name: str
+    source_ref: str  # the record / candidate id on its own surface
+    note: str
+
+
+class DecisionBook(BaseModel):
+    """The decision book (see :mod:`decisionbook`): every
+    governed act in a stated period, across every account, in
+    time order — one document an E&O reviewer can hold. A pure
+    projection over the brief store, the staleness store, the
+    follow-through store, and the review gate's cited layer;
+    composing it writes nothing.
+
+    The face carries the coverage statement: the period, the
+    window rule (both bounds inclusive, moments read in UTC),
+    the sources the book is composed from — the completeness
+    rule is that every source on that list contributes every
+    act it holds in the window — the act counts by kind, and
+    a SHA-256 digest over the book's content. The book carries
+    no generation stamp: the same stores compose to the same
+    bytes, and the digest proves it."""
+
+    start: date
+    end: date
+    window_rule: str
+    sources: list[str] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
+    total: int = 0
+    entries: list[DecisionBookEntry] = Field(default_factory=list)
+    undated: list[DecisionBookUndated] = Field(default_factory=list)
+    digest: str = ""
+
+
 # -- API request shapes ------------------------------------------------------
 
 

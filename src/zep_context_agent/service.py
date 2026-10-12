@@ -483,6 +483,29 @@ class BriefService:
             ),
         )
 
+    # -- the decision book ------------------------------------------------------
+
+    def decision_book(self, start: date, end: date):
+        """The decision book (see decisionbook.build_decision_book):
+        every governed act recorded in ``[start, end]`` — gate
+        decisions, staleness raised and resolved, asks opened,
+        received, and completed, renewal chases sent, review-gate
+        confirmations and rejections — in time order, with the
+        counts and a digest on its face. A pure projection: it
+        mutates nothing, and the per-account surfaces keep their
+        own records untouched."""
+        from . import decisionbook as decisionbook_mod
+
+        return decisionbook_mod.build_decision_book(
+            port=self.port,
+            accounts=self.accounts,
+            brief_store=self.store,
+            staleness_store=self.staleness_store,
+            follow_store=self.follow_store,
+            start=start,
+            end=end,
+        )
+
     # -- briefs ---------------------------------------------------------------
 
     def _facts_version(self, account_id: str) -> int | None:
