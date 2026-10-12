@@ -42,6 +42,7 @@ from zep_context_agent.ontology import Account, FactAssertion, SourceDocument
 from zep_context_agent.schemas import Brief
 from zep_context_agent.service import BriefService
 from zep_context_agent.store import InMemoryBriefStore
+from zep_context_agent.temporal import today
 
 AS_OF = date(2026, 6, 1)
 
@@ -442,7 +443,7 @@ def test_ask_completion_does_not_clear_a_staleness_flag():
 
     # A fresh decision resolves the flag (round 3's rule) and the
     # completed ask is untouched by it.
-    fresh = service.assemble("ACC-FT", as_of=date.today())
+    fresh = service.assemble("ACC-FT", as_of=today())
     service.decide(
         fresh.brief_id, action="proceed", actor="J. Alvarez",
         reason="File complete; terms as endorsed.",

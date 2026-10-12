@@ -5,11 +5,12 @@ pinned to identical behaviour."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
 from zep_context_agent.errors import DecisionError
+from zep_context_agent.temporal import today
 
 AS_OF = date(2026, 6, 1)
 
@@ -56,12 +57,40 @@ def test_decision_joins_account_history(service):
     service.decide(
         brief.brief_id, action="escalate", actor="R. Osei", reason="Refer to senior."
     )
-    later = service.assemble("ACC-002", as_of=date.today())
+    later = service.assemble("ACC-002", as_of=today())
     decisions = [
         f for f in later.current_facts if f.predicate == "underwriter_decision"
     ]
     assert any(
         f.value == "escalate" and f.entity_ref == brief.brief_id for f in decisions
+    )
+
+
+def test_decision_is_still_history_a_year_on(service):
+    """Regression pin for the calendar rot: a decision must not
+    age out of the account's history, and "later" must not depend
+    on the host's clock. The decision is stamped on the UTC clock
+    (as every stamp is); assembling a full year past the desk's
+    today — far beyond the dataset's present — still resolves
+    the decision as a current fact and lands it in the diff.
+    Reading the host-local date for "later" instead once made
+    this fail every evening west of UTC, when the local date
+    lagged the UTC stamp by a day and the decision resolved as
+    a future fact."""
+    brief = service.assemble("ACC-002", as_of=AS_OF)
+    service.decide(
+        brief.brief_id, action="escalate", actor="R. Osei", reason="Refer to senior."
+    )
+    later = service.assemble("ACC-002", as_of=today() + timedelta(days=365))
+    decisions = [
+        f for f in later.current_facts if f.predicate == "underwriter_decision"
+    ]
+    assert any(
+        f.value == "escalate" and f.entity_ref == brief.brief_id for f in decisions
+    )
+    assert later.diff is not None
+    assert any(
+        f.predicate == "underwriter_decision" for f in later.diff.added
     )
 
 

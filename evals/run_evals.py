@@ -172,7 +172,7 @@ from zep_context_agent.service import BriefService  # noqa: E402
 from zep_context_agent import timeline as timeline_mod  # noqa: E402
 from zep_context_agent.staleness import build_desk_queue  # noqa: E402
 from zep_context_agent.store import InMemoryBriefStore  # noqa: E402
-from zep_context_agent.temporal import resolve  # noqa: E402
+from zep_context_agent.temporal import resolve, today  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "golden.jsonl"
 CORRECTNESS_GATE = 0.95
@@ -405,7 +405,7 @@ def run_diff_scenario(accounts: dict) -> dict:
         reason="Scenario: the file as it stood before the endorsement.",
     )
     staged["ACC-001"] = full  # the endorsement + relocation land
-    brief2 = service.assemble("ACC-001", as_of=date.today())
+    brief2 = service.assemble("ACC-001", as_of=today())
     checks["brief2_limit_is_2500000"] = _limit(brief2) == [2500000]
     diff = brief2.diff
     checks["brief2_has_diff"] = diff is not None
@@ -630,7 +630,7 @@ def run_staleness_scenario(accounts: dict) -> dict:
         and queue[0].staleness.brief_id == brief1.brief_id
     )
 
-    brief2 = service.assemble("ACC-001", as_of=date.today())
+    brief2 = service.assemble("ACC-001", as_of=today())
     facts = service.port.get_facts("ACC-001")
     checks["resolution_brief_leakage_free"] = (
         guardrails.brief_violations(brief2, facts) == []
@@ -839,7 +839,7 @@ def run_followthrough_scenario(accounts: dict) -> dict:
     checks["decided_brief_byte_identical"] = (
         service.get_brief(brief.brief_id).model_dump_json() == decided_snapshot
     )
-    final = service.assemble("ACC-FT", as_of=date.today())
+    final = service.assemble("ACC-FT", as_of=today())
     facts = service.port.get_facts("ACC-FT")
     checks["final_brief_leakage_free"] = (
         guardrails.brief_violations(final, facts) == []

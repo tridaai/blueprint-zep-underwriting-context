@@ -49,6 +49,7 @@ from zep_context_agent.staleness import (
     material_slice,
 )
 from zep_context_agent.store import InMemoryBriefStore
+from zep_context_agent.temporal import today
 
 HELD_BACK = {"DOC-001-END2", "DOC-001-COR"}
 AS_OF = date(2025, 6, 1)
@@ -158,7 +159,7 @@ def test_flag_forms_via_assembly_ingest_step():
     service = make(staged)
     decide_acc001(service)
     staged["ACC-001"] = full
-    service.assemble("ACC-001", as_of=date.today())
+    service.assemble("ACC-001", as_of=today())
     assert len(service.list_staleness("ACC-001")) == 1
 
 
@@ -170,7 +171,7 @@ def test_duplicate_reingestion_flags_nothing():
     service = make(staged)
     decide_acc001(service)
     service.ingest("ACC-001")  # same file again — idempotent
-    service.assemble("ACC-001", as_of=date.today())  # pipeline re-ingests too
+    service.assemble("ACC-001", as_of=today())  # pipeline re-ingests too
     assert service.list_staleness("ACC-001") == []
 
 
@@ -181,7 +182,7 @@ def test_a_decision_does_not_stale_itself():
     # The decision memo has joined the graph; a fresh assembly —
     # whose ingest step sees no new episodes — must not flag the
     # decision over its own echo.
-    service.assemble("ACC-001", as_of=date.today())
+    service.assemble("ACC-001", as_of=today())
     assert service.list_staleness("ACC-001") == []
     assert decided.decision is not None
 
@@ -370,7 +371,7 @@ def test_resolution_only_by_a_fresh_decision():
     land_the_endorsement(service, staged, full)
     record = service.list_staleness("ACC-001")[0]
     assert record.resolved_by_brief is None
-    fresh = service.assemble("ACC-001", as_of=date.today())
+    fresh = service.assemble("ACC-001", as_of=today())
     # Assembling alone does not resolve — the gate must decide.
     assert service.list_staleness("ACC-001")[0].resolved_by_brief is None
     service.decide(

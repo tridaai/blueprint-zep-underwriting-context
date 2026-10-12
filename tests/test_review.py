@@ -50,9 +50,10 @@ from zep_context_agent.ontology import (
 from zep_context_agent.review import render_review_queue_text
 from zep_context_agent.service import BriefService
 from zep_context_agent.store import InMemoryBriefStore
+from zep_context_agent.temporal import today
 
 AS_OF = date(2026, 6, 1)
-TODAY = date.today()
+TODAY = today()
 
 
 def make(staged, **overrides) -> BriefService:

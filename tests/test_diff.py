@@ -25,6 +25,7 @@ from zep_context_agent.schemas import (
     SupersededFact,
 )
 from zep_context_agent.store import InMemoryBriefStore
+from zep_context_agent.temporal import today
 
 NOW = datetime(2026, 6, 1, tzinfo=timezone.utc)
 AS_OF = date(2026, 6, 1)
@@ -215,7 +216,7 @@ def test_decision_lands_in_the_next_briefs_diff(service):
         first.brief_id, action="request_info", actor="R. Osei",
         reason="Need the updated loss run.",
     )
-    second = service.assemble("ACC-001", as_of=date.today())
+    second = service.assemble("ACC-001", as_of=today())
     assert second.diff is not None
     assert len(second.diff.decisions) == 1
     entry = second.diff.decisions[0]
