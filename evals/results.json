@@ -1,6 +1,6 @@
 {
   "backend": "offline",
-  "generated_at": "2026-10-12T01:58:48.874299+00:00",
+  "generated_at": "2026-10-12T11:40:39.986125+00:00",
   "cases": [
     {
       "case_id": "T01",
@@ -551,6 +551,23 @@
     },
     "passed": true
   },
+  "duplicate_scenario": {
+    "checks": {
+      "seeded_flags_exactly_the_meridian_pair": true,
+      "meridian_evidence_asserted": true,
+      "unverdicted_flag_does_not_annotate": true,
+      "verdict_moves_nothing": true,
+      "confirmed_pair_annotates_named": true,
+      "weights_and_rows_unchanged": true,
+      "watch_reads_confirmed": true,
+      "identical_names_alone_do_not_flag": true,
+      "verdict_on_unflagged_pair_refused": true,
+      "evidence_is_each_accounts_own": true,
+      "distinct_suppresses": true,
+      "material_change_reflags": true
+    },
+    "passed": true
+  },
   "gates": {
     "brief_correctness": true,
     "temporal_correctness": true,
@@ -568,7 +585,8 @@
     "chase_scenario": true,
     "renewal_brief_scenario": true,
     "broker_book_scenario": true,
-    "decision_book_scenario": true
+    "decision_book_scenario": true,
+    "duplicate_scenario": true
   },
   "passed": true
 }
