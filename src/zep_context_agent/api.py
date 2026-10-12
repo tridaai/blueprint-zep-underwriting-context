@@ -47,6 +47,7 @@ from .errors import (
     ContextNotConfigured,
     DecisionBookError,
     DecisionError,
+    DuplicateError,
     FollowThroughError,
     IngestionInProgress,
     RenewalError,
@@ -59,6 +60,7 @@ from .schemas import (
     AssembleRequest,
     ChaseSendRequest,
     DecisionRequest,
+    DuplicateVerdictRequest,
     ReviewRequest,
 )
 from .service import BriefService
@@ -149,6 +151,10 @@ def create_app(service: BriefService | None = None) -> FastAPI:
 
     @app.exception_handler(ChaseError)
     def chase_handler(request: Request, exc: ChaseError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(DuplicateError)
+    def duplicate_handler(request: Request, exc: DuplicateError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(RenewalError)
@@ -303,6 +309,52 @@ def create_app(service: BriefService | None = None) -> FastAPI:
         mutates nothing and re-orders nothing else."""
         book = svc.broker_book(as_of=as_of, horizon_days=horizon_days)
         return book.model_dump(mode="json")
+
+    @app.get("/duplicates")
+    def duplicates(as_of: date | None = None) -> dict:
+        """The duplicate watch: candidate pairs computed from
+        current facts — normalised legal-name similarity over
+        the published threshold, plus a corroborating signal
+        (a bare similarity never flags alone) — each with both
+        sides' evidence, the corroborators that fired, and its
+        standing under the verdict store (FLAGGED,
+        CONFIRMED_SAME, or DISTINCT-suppressed). A pure
+        projection: it mutates nothing, merges nothing, and
+        the desk queue's order is untouched by it — pair work
+        is book hygiene, not account urgency. ``as_of`` pins
+        the temporal verdicts (defaults to today)."""
+        watch = svc.duplicate_watch(as_of=as_of)
+        return watch.model_dump(mode="json")
+
+    @app.get("/duplicates/verdicts")
+    def duplicate_verdicts() -> list[dict]:
+        """Every duplicate verdict on the record, oldest
+        first — the append-only history the watch's standings
+        derive from."""
+        return [
+            r.model_dump(mode="json") for r in svc.list_duplicate_verdicts()
+        ]
+
+    @app.post("/duplicates/verdict", status_code=201)
+    def record_duplicate_verdict(request: DuplicateVerdictRequest) -> dict:
+        """Record a named underwriter's verdict on a flagged
+        pair: SAME_INSURED (with a note) or DISTINCT (with the
+        distinguishing fact stated). The record carries the
+        pair's current evidence fingerprint — a DISTINCT
+        verdict suppresses only while the evidence stands, so
+        a material fact change re-flags the pair. Refusals are
+        409s naming their cause (an unflagged pair, a missing
+        actor or note). The verdict moves no fact, edits no
+        brief, and merges nothing: the desk merges accounts in
+        their system of record, not here."""
+        record = svc.record_duplicate_verdict(
+            request.account_a,
+            request.account_b,
+            verdict=request.verdict,
+            actor=request.actor,
+            note=request.note,
+        )
+        return record.model_dump(mode="json")
 
     @app.get("/decision-book")
     def decision_book(

@@ -66,6 +66,19 @@ that projection:
   again because it is the same temptation: displayed, never
   weighted, never scored, never ranked by. A satisfied
   chase is closed business and does not count.
+- **Confirmed duplicates annotate the brief** (round 13).
+  The brief carries the duplicate watch's annotation (see
+  :mod:`duplicates`): the pairs a named underwriter has
+  verdicted SAME_INSURED — "N accounts in M confirmed
+  duplicate pairs", the pairs named with the verdict that
+  confirmed them. It rides the brief, never a row: no row's
+  counts, score, or position moves, and the weights are
+  exactly the published ones. The double-count is reported,
+  not silently corrected — the desk merges accounts in
+  their system of record, not here. Until a verdict exists
+  the annotation is empty and the brief renders exactly as
+  it always has; an unverdicted flag never annotates, since
+  a suspicion does not print as fact.
 
 Like the timeline and the watch, the brief is a **pure
 projection**: it reads the port and the record stores and
@@ -86,7 +99,12 @@ from . import support as support_mod
 from . import timeline as timeline_mod
 from .ontology import Account
 from .ports import ContextPort
-from .schemas import PortfolioBrief, PortfolioRow, PortfolioSignals
+from .schemas import (
+    DuplicateAnnotation,
+    PortfolioBrief,
+    PortfolioRow,
+    PortfolioSignals,
+)
 
 #: The ranking's weights — authored data, printed on every
 #: brief. Score = sum(weight x count) over the six signals.
@@ -179,6 +197,7 @@ def build_portfolio_brief(
     follow_store,
     as_of: date,
     horizon_days: int,
+    duplicate_store=None,
 ) -> PortfolioBrief:
     """Every account, ranked: score descending, ties by name
     then id — so an account carrying no signal at all (score
@@ -227,11 +246,26 @@ def build_portfolio_brief(
             )
         )
     rows.sort(key=lambda r: (-r.score, r.account_name, r.account_id))
+    # The duplicate annotation (see duplicates.py): computed
+    # from the watch and the verdict store, attached to the
+    # brief — the rows above were built without reading it,
+    # and nothing in them changes because it exists.
+    annotation = DuplicateAnnotation()
+    if duplicate_store is not None:
+        from . import duplicates as duplicates_mod
+
+        annotation = duplicates_mod.confirmed_annotation(
+            port=port,
+            accounts=accounts,
+            verdict_store=duplicate_store,
+            as_of=as_of,
+        )
     return PortfolioBrief(
         as_of=as_of,
         horizon_days=horizon_days,
         weights=dict(PORTFOLIO_WEIGHTS),
         rows=rows,
+        duplicates=annotation,
     )
 
 
@@ -272,4 +306,23 @@ def render_portfolio_text(brief: PortfolioBrief) -> str:
             f"{rank:>3}. {row.account_id}  {row.account_name} — "
             f"score {row.score}: {detail}"
         )
+    if brief.duplicates.pair_count:
+        # The exposure reading: confirmed duplicates, reported
+        # — the totals above still count every account, and
+        # no score moved. Printed only when a verdict exists.
+        lines.append("")
+        lines.append(
+            f"Duplicate accounts: {brief.duplicates.account_count} "
+            f"account(s) in {brief.duplicates.pair_count} confirmed "
+            "duplicate pair(s) — exposure double-count reported, "
+            "not corrected; the desk merges accounts in their "
+            "system of record."
+        )
+        for pair in brief.duplicates.pairs:
+            lines.append(
+                f"  - {pair.account_a} {pair.account_a_name} × "
+                f"{pair.account_b} {pair.account_b_name} — "
+                f"SAME_INSURED by {pair.actor} "
+                f"(verdict {pair.record_id})"
+            )
     return "\n".join(lines) + "\n"

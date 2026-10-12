@@ -50,6 +50,7 @@ from .errors import (
     RenewalError,
     ReviewError,
 )
+from .duplicates import default_duplicate_verdict_store
 from .followthrough import default_follow_store
 from .graph import Runtime, build_graph, run_pipeline
 from .ingestion import ingest_account
@@ -72,6 +73,7 @@ class BriefService:
         store=None,
         staleness_store="default",
         follow_store="default",
+        duplicate_store="default",
         object_store="default",
         checkpointer="default",
         cache="default",
@@ -97,6 +99,11 @@ class BriefService:
         )
         self.follow_store = (
             default_follow_store() if follow_store == "default" else follow_store
+        )
+        self.duplicate_store = (
+            default_duplicate_verdict_store()
+            if duplicate_store == "default"
+            else duplicate_store
         )
         self.object_store = (
             get_object_store() if object_store == "default" else object_store
@@ -436,8 +443,12 @@ class BriefService:
         every account's signals counted from the machinery that
         owns them, ranked by the published weights. A pure
         projection — it mutates nothing and re-orders nothing;
-        the desk queue keeps its own order. The horizon defaults
-        to the configured EXPIRY_HORIZON_DAYS, like the watch."""
+        the desk queue keeps its own order. The brief also
+        carries the duplicate watch's annotation — the pairs a
+        named underwriter has confirmed SAME_INSURED, counted
+        and named; rows, scores, and weights are untouched by
+        it. The horizon defaults to the configured
+        EXPIRY_HORIZON_DAYS, like the watch."""
         from . import portfolio as portfolio_mod
         from .config import expiry_horizon_days
 
@@ -447,6 +458,7 @@ class BriefService:
             brief_store=self.store,
             staleness_store=self.staleness_store,
             follow_store=self.follow_store,
+            duplicate_store=self.duplicate_store,
             as_of=as_of or today(),
             horizon_days=(
                 horizon_days if horizon_days is not None else expiry_horizon_days()
@@ -505,6 +517,64 @@ class BriefService:
             start=start,
             end=end,
         )
+
+    # -- the duplicate watch ----------------------------------------------------
+
+    def duplicate_watch(self, as_of: date | None = None):
+        """The duplicate watch (see duplicates.build_duplicate_watch):
+        candidate pairs computed from current facts — normalised
+        legal-name similarity over the published threshold, plus
+        a corroborating signal — each carrying its evidence and
+        its standing under the verdict store. A pure projection:
+        it writes nothing, merges nothing, and the desk queue's
+        order is untouched by it (pair work is book hygiene, not
+        account urgency)."""
+        from . import duplicates as duplicates_mod
+
+        return duplicates_mod.build_duplicate_watch(
+            port=self.port,
+            accounts=self.accounts,
+            verdict_store=self.duplicate_store,
+            as_of=as_of or today(),
+        )
+
+    def record_duplicate_verdict(
+        self,
+        account_a: str,
+        account_b: str,
+        *,
+        verdict: str,
+        actor: str,
+        note: str,
+        as_of: date | None = None,
+    ):
+        """Record a named underwriter's verdict on a flagged
+        pair: SAME_INSURED (with a note) or DISTINCT (with the
+        distinguishing fact stated). The record is append-only
+        and carries the pair's current evidence fingerprint;
+        it moves no fact, edits no brief, and merges nothing.
+        Refusals (an unflagged pair, a missing actor or note)
+        raise DuplicateError naming the cause."""
+        from . import duplicates as duplicates_mod
+
+        self.get_account(account_a)  # AccountNotFound, honestly
+        self.get_account(account_b)
+        return duplicates_mod.record_verdict(
+            port=self.port,
+            accounts=self.accounts,
+            verdict_store=self.duplicate_store,
+            account_a=account_a,
+            account_b=account_b,
+            verdict=verdict,
+            actor=actor,
+            note=note,
+            as_of=as_of or today(),
+        )
+
+    def list_duplicate_verdicts(self):
+        """Every verdict on the record, oldest first — the
+        append-only history the watch's standings derive from."""
+        return self.duplicate_store.list()
 
     # -- briefs ---------------------------------------------------------------
 
