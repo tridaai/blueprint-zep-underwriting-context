@@ -24,12 +24,19 @@ one has been ingested and decided: the ranking shows what
 that means. The decided account carries no signal; the other
 thirty-nine stand at "no decided brief", the unexamined —
 which is exactly the distinction the brief exists to draw.
+
+And then the broker book over the same world: six brokers,
+grouped off the placing-broker edge on each account's own
+submission. This account's broker shows one decided account
+and nothing owed; the other brokers' books stand unexamined,
+which the decided mix says out loud.
 """
 
 from __future__ import annotations
 
 from langgraph.checkpoint.memory import MemorySaver
 
+from .brokers import render_broker_book_text
 from .datasets import DATASET_PRESENT
 from .offline_graph import OfflineContextGraph
 from .ontology import predicate_label
@@ -95,6 +102,17 @@ def main() -> int:
     print(
         render_portfolio_text(
             service.portfolio_brief(as_of=DATASET_PRESENT)
+        ),
+        end="",
+    )
+    # The broker book over the same world: what each broker
+    # owes the desk, grouped off the placing-broker edge on
+    # each account's own submission. This account's broker
+    # shows its one decided account and nothing owed.
+    print()
+    print(
+        render_broker_book_text(
+            service.broker_book(as_of=DATASET_PRESENT)
         ),
         end="",
     )

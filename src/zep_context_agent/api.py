@@ -279,6 +279,23 @@ def create_app(service: BriefService | None = None) -> FastAPI:
         brief = svc.portfolio_brief(as_of=as_of, horizon_days=horizon_days)
         return brief.model_dump(mode="json")
 
+    @app.get("/brokers")
+    def brokers(
+        as_of: date | None = None, horizon_days: int | None = None
+    ) -> dict:
+        """The broker book: the whole book grouped by the
+        placing broker on each account's paper — what each
+        broker owes the desk (open asks, with the outstanding
+        items listed per account) and how their accounts stand
+        (the decided mix, stale decisions, expiring and lapsed
+        facts, candidates awaiting review, open chases). Every
+        figure is the per-account machinery's own, summed; the
+        order is the published chasing order printed on the
+        book, and no score is computed. A pure projection: it
+        mutates nothing and re-orders nothing else."""
+        book = svc.broker_book(as_of=as_of, horizon_days=horizon_days)
+        return book.model_dump(mode="json")
+
     @app.get("/staleness")
     def list_staleness(account_id: str | None = None) -> list[dict]:
         return [

@@ -453,6 +453,36 @@ class BriefService:
             ),
         )
 
+    # -- the broker book -------------------------------------------------------
+
+    def broker_book(
+        self, as_of: date | None = None, horizon_days: int | None = None
+    ):
+        """The broker book (see brokers.build_broker_book): the
+        whole book grouped by the placing broker on each
+        account's own paper — accounts, the decided mix, the
+        open asks owed with their outstanding items, stale
+        decisions, expiring and lapsed facts, candidates
+        awaiting review, open chases — every figure the
+        per-account machinery's own, summed. A pure projection
+        in a published chasing order; no score, and it feeds
+        no other surface. The horizon defaults to the
+        configured EXPIRY_HORIZON_DAYS, like the watch."""
+        from . import brokers as brokers_mod
+        from .config import expiry_horizon_days
+
+        return brokers_mod.build_broker_book(
+            port=self.port,
+            accounts=self.accounts,
+            brief_store=self.store,
+            staleness_store=self.staleness_store,
+            follow_store=self.follow_store,
+            as_of=as_of or today(),
+            horizon_days=(
+                horizon_days if horizon_days is not None else expiry_horizon_days()
+            ),
+        )
+
     # -- briefs ---------------------------------------------------------------
 
     def _facts_version(self, account_id: str) -> int | None:

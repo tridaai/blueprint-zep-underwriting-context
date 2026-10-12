@@ -751,6 +751,105 @@ class PortfolioBrief(BaseModel):
     rows: list[PortfolioRow] = Field(default_factory=list)
 
 
+class BrokerAskItem(BaseModel):
+    """One item still outstanding on an open ask, as the broker
+    book lists it (see :mod:`brokers`): the ask's own item,
+    quoted — kind, the predicate or document it names, the
+    underwriter-terms label the draft asked by. The text is the
+    item's own; the book composes, it never paraphrases."""
+
+    kind: Literal["predicate", "document", "renewal"]
+    predicate: str = ""
+    label: str
+    doc_id: str = ""  # document items: the document to resend;
+    # renewal items: the document the chased fact stands on
+    doc_title: str = ""
+    expires_on: date | None = None  # renewal items: the chased
+    # fact's window end
+
+
+class BrokerAccountAsk(BaseModel):
+    """One open ask on one account, as its broker's row lists
+    it: the record's identity and state in the follow-through
+    store's own vocabulary, and the items still outstanding on
+    it (received items are the broker's answered business and
+    are not listed — the book is what is owed)."""
+
+    account_id: str
+    account_name: str
+    record_id: str
+    brief_id: str
+    origin: Literal["decision", "renewal_chase"] = "decision"
+    status: Literal["open", "partially_received", "complete"]
+    items: list[BrokerAskItem] = Field(default_factory=list)
+
+
+class BrokerRow(BaseModel):
+    """One broker's line in the broker book (see
+    :mod:`brokers`): the accounts they place, how those
+    accounts' latest decisions stand, and what the broker owes
+    the desk across the whole book. Every count is the
+    per-account machinery's own figure re-aggregated — the
+    portfolio brief's signal counts summed over the broker's
+    accounts, the follow-through store's open asks, the chase
+    projection's open chases — never a second computation.
+
+    The unattributed row carries ``broker_id is None``: accounts
+    whose paper names no placing broker. They are grouped and
+    counted like any other row, never dropped — an account the
+    desk cannot attribute is still the desk's account."""
+
+    broker_id: str | None = None  # the placed_by edge's target;
+    # None is the unattributed row
+    broker_name: str
+    accounts: int = 0
+    account_ids: list[str] = Field(default_factory=list)
+    # The decided mix: accounts whose LATEST decided brief
+    # (staleness.latest_decided_brief) carries each action,
+    # and the accounts never decided at all.
+    decided_proceed: int = 0
+    decided_request_info: int = 0
+    decided_escalate: int = 0
+    undecided: int = 0
+    # What the broker owes: open ask records across the book,
+    # and the items outstanding on them.
+    open_asks: int = 0
+    open_items: int = 0
+    stale_decisions: int = 0
+    expiring_facts: int = 0
+    lapsed_facts: int = 0
+    pending_candidates: int = 0
+    # Renewal chases standing open on the broker's accounts
+    # (see :mod:`chases`), displayed like the portfolio brief
+    # displays them — a count of desk work in flight, never
+    # part of the book's order.
+    open_chases: int = 0
+    asks: list[BrokerAccountAsk] = Field(default_factory=list)
+
+
+class BrokerBook(BaseModel):
+    """The broker book (see :mod:`brokers`): the whole book
+    grouped by placing broker — what each broker owes the
+    desk, and how their accounts stand — as of a stated date.
+    A pure projection over the port and the record stores:
+    building it mutates nothing, and no per-account surface
+    (the desk queue, the portfolio brief, the watches) is
+    touched by it.
+
+    The rows carry an order, because the book is a chasing
+    tool: most open asks owed first, then most stale
+    decisions, then broker name, then broker id — with the
+    unattributed row always last, since there is no broker
+    to chase there. The rule is printed on the book's face
+    (``order_rule``). No score is computed and no weights
+    exist: this is a ledger, not a ranking."""
+
+    as_of: date
+    horizon_days: int
+    order_rule: str
+    rows: list[BrokerRow] = Field(default_factory=list)
+
+
 # -- API request shapes ------------------------------------------------------
 
 

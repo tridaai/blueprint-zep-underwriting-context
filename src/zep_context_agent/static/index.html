@@ -99,6 +99,7 @@
   </div>
   <div class="spacer"></div>
   <button class="action secondary" id="btn-portfolio">Portfolio</button>
+  <button class="action secondary" id="btn-brokers">Brokers</button>
   <button class="action secondary" id="btn-watch">Expiry watch</button>
   <button class="action secondary" id="btn-review">Review queue</button>
   <button class="action secondary" id="btn-queue">Desk queue</button>
@@ -277,6 +278,45 @@ async function showPortfolio() {
   for (const r of brief.rows) names[r.account_id] = r.account_name;
   el.querySelectorAll(".queue-row").forEach(row => {
     row.querySelector("strong").textContent = names[row.dataset.account] || row.dataset.account;
+    row.onclick = () => selectAccount(row.dataset.account);
+  });
+}
+
+async function showBrokers() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const book = await api("/brokers");
+  const el = $("#detail");
+  let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The broker book</h2>
+    <p class="small">The whole book grouped by the placing broker on each account's paper, as of ${book.as_of}, expiry horizon ${book.horizon_days} days. What each broker owes the desk — open asks, with the outstanding items listed under their own account — and how their accounts stand: the decided mix off each account's latest decided brief, stale decisions, expiring and lapsed facts, candidates awaiting review, open chases. Every count is the per-account machinery's own figure summed over the broker's accounts — counted, never re-derived — and nothing crosses accounts: a row aggregates counts, and the only text it carries is an ask's own items under that ask's account. ${book.order_rule} Accounts whose paper names no broker are grouped as Unattributed and close the book — counted, never dropped. Click an account to open it.</p>`;
+  if (!book.rows.length) {
+    html += `<div class="empty">No accounts.</div>`;
+  }
+  book.rows.forEach((r, i) => {
+    const num = (n) => n ? `<strong>${n}</strong>` : `<span class="small">—</span>`;
+    html += `<div class="card">
+      <div class="row">
+        <strong class="broker-name" data-row="${i}"></strong>
+        <span class="pill indigo">${r.accounts} account(s)</span>
+        <span class="small">decided: ${r.decided_proceed} proceed · ${r.decided_request_info} request-info · ${r.decided_escalate} escalate · ${r.undecided} undecided</span>
+      </div>
+      <table><tr><th>Open asks</th><th>Items owed</th><th>Stale decisions</th><th>Expiring</th><th>Lapsed</th><th>Awaiting review</th><th>Open chases</th></tr>
+      <tr><td>${num(r.open_asks)}</td><td>${num(r.open_items)}</td><td>${num(r.stale_decisions)}</td><td>${num(r.expiring_facts)}</td><td>${num(r.lapsed_facts)}</td><td>${num(r.pending_candidates)}</td><td>${num(r.open_chases)}</td></tr></table>`;
+    for (const a of r.asks) {
+      const items = a.items.map(it => `${it.label}${it.expires_on ? ` (expires ${it.expires_on})` : ""}`).join("; ");
+      html += `<div class="queue-row" data-account="${a.account_id}" style="cursor:pointer">
+        <span class="pill">${a.account_id}</span>
+        <span class="small">ask ${a.record_id} (${a.origin}, ${a.status}): ${items || "no items outstanding"}</span>
+      </div>`;
+    }
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+  el.querySelectorAll(".broker-name").forEach(node => {
+    node.textContent = book.rows[Number(node.dataset.row)].broker_name;
+  });
+  el.querySelectorAll(".queue-row").forEach(row => {
     row.onclick = () => selectAccount(row.dataset.account);
   });
 }
@@ -764,6 +804,7 @@ async function init() {
   } catch (e) { /* readiness is informational in the console */ }
   $("#btn-queue").onclick = () => showQueue();
   $("#btn-portfolio").onclick = () => showPortfolio();
+  $("#btn-brokers").onclick = () => showBrokers();
   $("#btn-watch").onclick = () => showWatch();
   $("#btn-review").onclick = () => showReview();
   await showQueue();
