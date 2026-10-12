@@ -100,6 +100,7 @@
   <div class="spacer"></div>
   <button class="action secondary" id="btn-portfolio">Portfolio</button>
   <button class="action secondary" id="btn-brokers">Brokers</button>
+  <button class="action secondary" id="btn-duplicates">Duplicates</button>
   <button class="action secondary" id="btn-book">Decision book</button>
   <button class="action secondary" id="btn-watch">Expiry watch</button>
   <button class="action secondary" id="btn-review">Review queue</button>
@@ -256,6 +257,13 @@ async function showPortfolio() {
   const weights = SIGNAL_COLUMNS.map(([k, label]) => `${label.toLowerCase()} ${brief.weights[k]}`).join(" · ");
   let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The morning portfolio brief</h2>
     <p class="small">The whole book as of ${brief.as_of}, expiry horizon ${brief.horizon_days} days. Every count is the per-account machinery's own verdict — the staleness watch, the follow-through store, the expiry watch, the review gate — counted, never re-derived. The score is the weighted sum, with the weights printed here because a ranking the desk cannot audit is a ranking it should not trust: ${weights}. An account with no decided brief is unexamined, not clean — it counts. An account with a decision and nothing outstanding scores zero and closes the list: a clean book is a fact worth printing. The thin-facts column counts current facts grading thin on support; it is shown for information and is deliberately not in the weights — it cannot move the ranking. The open-chases column counts renewal chases standing open on the account, under exactly the same discipline — displayed, unweighted, never scored. Click a row to open the account.</p>`;
+  if (brief.duplicates && brief.duplicates.pair_count) {
+    const d = brief.duplicates;
+    const names = d.pairs.map(p => `<li><strong class="dup-pair-name"></strong> <span class="small">(${p.account_a} × ${p.account_b}) — SAME_INSURED by <span class="dup-pair-actor"></span>, verdict ${p.record_id}</span></li>`).join("");
+    html += `<div class="card"><strong>Duplicate accounts — ${d.account_count} account(s) in ${d.pair_count} confirmed duplicate pair(s)</strong>
+      <p class="small">Exposure double-count, reported — not corrected: the totals above still count every account, and no score or ranking moved. A pair prints here only on a named underwriter's SAME_INSURED verdict (the Duplicates view holds the evidence and the record). The desk merges accounts in their system of record, not here.</p>
+      <ul>${names}</ul></div>`;
+  }
   if (!brief.rows.length) {
     html += `<div class="empty">No accounts.</div>`;
   } else {
@@ -275,6 +283,15 @@ async function showPortfolio() {
     html += `</table>`;
   }
   el.innerHTML = html;
+  if (brief.duplicates && brief.duplicates.pairs) {
+    el.querySelectorAll(".dup-pair-name").forEach((node, i) => {
+      const p = brief.duplicates.pairs[i];
+      node.textContent = `${p.account_a_name} × ${p.account_b_name}`;
+    });
+    el.querySelectorAll(".dup-pair-actor").forEach((node, i) => {
+      node.textContent = brief.duplicates.pairs[i].actor;
+    });
+  }
   const names = {};
   for (const r of brief.rows) names[r.account_id] = r.account_name;
   el.querySelectorAll(".queue-row").forEach(row => {
@@ -319,6 +336,93 @@ async function showBrokers() {
   });
   el.querySelectorAll(".queue-row").forEach(row => {
     row.onclick = () => selectAccount(row.dataset.account);
+  });
+}
+
+const DUP_STATE_LABEL = {
+  FLAGGED: "FLAGGED — awaiting a verdict",
+  CONFIRMED_SAME: "CONFIRMED — SAME INSURED",
+  DISTINCT: "DISTINCT — suppressed",
+};
+const DUP_STATE_PILL = { FLAGGED: "warn", CONFIRMED_SAME: "ok", DISTINCT: "" };
+
+async function showDuplicates() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const watch = await api("/duplicates");
+  const el = $("#detail");
+  let html = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The duplicate watch</h2>
+    <p class="small">Possible duplicate accounts — the same insured, twice — computed from current facts as of ${watch.as_of}. ${watch.rule} Every flag below carries its evidence: both accounts' own values, the similarity figure, and the corroborators that fired. A verdict is a named underwriter's governed act, recorded on its own record: it merges nothing, moves no fact, and edits no brief — the desk merges accounts in their system of record, not here. A DISTINCT verdict suppresses the pair while the evidence stands; if the underlying facts change materially, the pair re-flags as a new flag. The desk queue does not change — pair work is book hygiene, not account urgency.</p>`;
+  if (!watch.pairs.length) {
+    html += `<div class="empty">No candidate pairs on current facts. A clean watch is a fact worth printing.</div>`;
+  }
+  watch.pairs.forEach((p, i) => {
+    html += `<div class="card">
+      <div class="row">
+        <strong class="dup-names" data-pair="${i}"></strong>
+        <span class="pill ${DUP_STATE_PILL[p.state] || ""}">${DUP_STATE_LABEL[p.state] || p.state}</span>
+        <span class="pill">${p.account_a} × ${p.account_b}</span>
+        <span class="pill indigo">name similarity ${Number(p.name_similarity).toFixed(2)} (threshold ${Number(p.threshold).toFixed(2)})</span>
+        ${p.reflagged ? `<span class="pill warn">RE-FLAGGED — the facts changed since the DISTINCT verdict</span>` : ""}
+      </div>
+      <div class="dup-sides" data-pair="${i}"></div>
+      <div class="small" style="margin-top:6px">Corroboration:</div>
+      <ul>${p.corroborators.map(c => `<li><strong>${c.kind}</strong> (${c.strength}) — <span class="dup-corr" data-pair="${i}"></span></li>`).join("")}</ul>
+      ${p.verdict ? `<div class="small" style="margin-top:6px">Latest verdict: <strong>${p.verdict.verdict}</strong> by <span class="dup-actor" data-pair="${i}"></span> — <span class="dup-note" data-pair="${i}"></span> <span class="small">(record ${p.verdict.record_id})</span></div>` : ""}
+      ${p.state === "FLAGGED" ? `<div class="row" style="gap:8px;align-items:center;margin-top:10px">
+        <input type="text" class="dup-verdict-actor" data-pair="${i}" placeholder="Underwriter name" style="flex:1">
+        <input type="text" class="dup-verdict-note" data-pair="${i}" placeholder="Note — for DISTINCT, the distinguishing fact" style="flex:2">
+        <button class="action" data-verdict="SAME_INSURED" data-pair="${i}">Same insured</button>
+        <button class="action secondary" data-verdict="DISTINCT" data-pair="${i}">Distinct</button>
+        <span class="small dup-verdict-error" data-pair="${i}" style="color:var(--bad,#b3261e)"></span>
+      </div>` : ""}
+    </div>`;
+  });
+  el.innerHTML = html;
+  watch.pairs.forEach((p, i) => {
+    const nameNode = el.querySelector(`.dup-names[data-pair="${i}"]`);
+    if (nameNode) nameNode.textContent = p.sides.map(s => s.account_name).join(" × ");
+    const sidesNode = el.querySelector(`.dup-sides[data-pair="${i}"]`);
+    if (sidesNode) {
+      sidesNode.innerHTML = "";
+      for (const s of p.sides) {
+        const div = document.createElement("div");
+        div.className = "small";
+        div.style.marginTop = "6px";
+        div.textContent = `${s.account_id} — legal name ${s.legal_name} · location ${s.primary_location || "not on file"} · risk class ${s.risk_class || "not on file"} · revenue ${s.annual_revenue_usd === null || s.annual_revenue_usd === undefined ? "not on file" : fmtVal(s.annual_revenue_usd, "USD")} · broker ${s.broker_id ? `${s.broker_name} (${s.broker_id})` : s.broker_name}`;
+        sidesNode.appendChild(div);
+      }
+    }
+    el.querySelectorAll(`.dup-corr[data-pair="${i}"]`).forEach((node, j) => {
+      node.textContent = p.corroborators[j].detail;
+    });
+    if (p.verdict) {
+      const actorNode = el.querySelector(`.dup-actor[data-pair="${i}"]`);
+      if (actorNode) actorNode.textContent = p.verdict.actor;
+      const noteNode = el.querySelector(`.dup-note[data-pair="${i}"]`);
+      if (noteNode) noteNode.textContent = p.verdict.note;
+    }
+  });
+  el.querySelectorAll("[data-verdict]").forEach(btn => {
+    btn.onclick = async () => {
+      const i = btn.dataset.pair;
+      const p = watch.pairs[Number(i)];
+      const actor = el.querySelector(`.dup-verdict-actor[data-pair="${i}"]`).value.trim();
+      const note = el.querySelector(`.dup-verdict-note[data-pair="${i}"]`).value.trim();
+      const err = el.querySelector(`.dup-verdict-error[data-pair="${i}"]`);
+      err.textContent = "";
+      try {
+        await api("/duplicates/verdict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ account_a: p.account_a, account_b: p.account_b, verdict: btn.dataset.verdict, actor, note }),
+        });
+        await showDuplicates();
+      } catch (ex) {
+        err.textContent = ex.message;
+      }
+    };
   });
 }
 
@@ -876,6 +980,7 @@ async function init() {
   $("#btn-queue").onclick = () => showQueue();
   $("#btn-portfolio").onclick = () => showPortfolio();
   $("#btn-brokers").onclick = () => showBrokers();
+  $("#btn-duplicates").onclick = () => showDuplicates();
   $("#btn-book").onclick = () => showDecisionBook();
   $("#btn-watch").onclick = () => showWatch();
   $("#btn-review").onclick = () => showReview();
