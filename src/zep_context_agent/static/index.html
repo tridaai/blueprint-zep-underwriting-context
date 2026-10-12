@@ -100,6 +100,7 @@
   <div class="spacer"></div>
   <button class="action secondary" id="btn-portfolio">Portfolio</button>
   <button class="action secondary" id="btn-brokers">Brokers</button>
+  <button class="action secondary" id="btn-book">Decision book</button>
   <button class="action secondary" id="btn-watch">Expiry watch</button>
   <button class="action secondary" id="btn-review">Review queue</button>
   <button class="action secondary" id="btn-queue">Desk queue</button>
@@ -319,6 +320,76 @@ async function showBrokers() {
   el.querySelectorAll(".queue-row").forEach(row => {
     row.onclick = () => selectAccount(row.dataset.account);
   });
+}
+
+const BOOK_KIND_LABEL = {
+  decision: "Decision",
+  review_confirmed: "Review — confirmed",
+  review_rejected: "Review — rejected",
+  staleness_raised: "Staleness — raised",
+  staleness_resolved: "Staleness — resolved",
+  ask_opened: "Ask — opened",
+  chase_sent: "Chase — sent",
+  ask_received: "Ask — item received",
+  ask_completed: "Ask — completed",
+};
+
+function _isoDay(d) { return d.toISOString().slice(0, 10); }
+
+async function showDecisionBook() {
+  currentAccount = null;
+  currentBrief = null;
+  await loadAccounts();
+  const el = $("#detail");
+  const end = new Date();
+  const start = new Date(end.getTime() - 13 * 86400000);
+  el.innerHTML = `<h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0 0 4px">The decision book</h2>
+    <p class="small">Every governed act in a period, across every account, in time order — the document an E&amp;O reviewer holds. Gate decisions (renewals marked, with their baselines), staleness raised and resolved, asks opened, received, and completed, renewal chases sent, review-gate confirmations and rejections. Composed from the stores that own the acts; composing it writes nothing, and the digest on its face proves the same stores compose to the same book.</p>
+    <div class="row" style="gap:8px;align-items:center;margin:10px 0">
+      <label class="small">From <input type="date" id="book-start" value="${_isoDay(start)}"></label>
+      <label class="small">To <input type="date" id="book-end" value="${_isoDay(end)}"></label>
+      <button class="action" id="book-compose">Compose the book</button>
+      <span class="small" id="book-error" style="color:var(--bad,#b3261e)"></span>
+    </div>
+    <div id="book-body"><div class="empty">Pick a period and compose the book.</div></div>`;
+  $("#book-compose").onclick = async () => {
+    const s = $("#book-start").value, e = $("#book-end").value;
+    const body = $("#book-body"), err = $("#book-error");
+    err.textContent = "";
+    try {
+      const book = await api(`/decision-book?start=${s}&end=${e}`);
+      const counts = Object.entries(book.counts).map(([k, n]) => `${BOOK_KIND_LABEL[k].toLowerCase()} ${n}`).join(" · ");
+      let html = `<div class="card">
+        <div class="row"><strong>${book.total} governed act(s)</strong><span class="small">${book.start} to ${book.end}</span></div>
+        <p class="small">Counts: ${counts}.<br>Digest (SHA-256 over the book's content): <code>${book.digest}</code><br>
+        <a href="/decision-book?start=${s}&end=${e}&format=text" download>Download the book as text ↓</a></p>
+        <p class="small">Coverage: ${book.sources.join("; ")}.<br>Window rule: ${book.window_rule}</p>
+      </div>`;
+      if (!book.entries.length) {
+        html += `<div class="empty">No governed act was recorded in this period. The book is empty, and it says so.</div>`;
+      } else {
+        html += `<table><tr><th>Recorded (UTC)</th><th>Act</th><th>Account</th><th>What happened</th></tr>`;
+        for (const en of book.entries) {
+          html += `<tr><td class="small">${en.at.replace("T", " ").slice(0, 16)}</td><td>${BOOK_KIND_LABEL[en.kind]}</td><td><strong class="book-acct"></strong><br><span class="small">${en.account_id}</span></td><td class="book-summary"></td></tr>`;
+        }
+        html += `</table>`;
+      }
+      if (book.undated && book.undated.length) {
+        html += `<div class="card"><strong>Undated</strong><p class="small">${book.undated.length} record(s) claiming a completed act but carrying no moment — listed, never dated by invention:</p>`;
+        for (const u of book.undated) {
+          html += `<div class="small">${BOOK_KIND_LABEL[u.kind] || u.kind} · ${u.account_id} · ${u.source_ref} — <span class="book-undated-note"></span></div>`;
+        }
+        html += `</div>`;
+      }
+      body.innerHTML = html;
+      body.querySelectorAll(".book-acct").forEach((node, i) => { node.textContent = book.entries[i].account_name; });
+      body.querySelectorAll(".book-summary").forEach((node, i) => { node.textContent = book.entries[i].summary; });
+      body.querySelectorAll(".book-undated-note").forEach((node, i) => { node.textContent = book.undated[i].note; });
+    } catch (ex) {
+      err.textContent = ex.message;
+      body.innerHTML = "";
+    }
+  };
 }
 
 async function selectAccount(accountId) {
@@ -805,6 +876,7 @@ async function init() {
   $("#btn-queue").onclick = () => showQueue();
   $("#btn-portfolio").onclick = () => showPortfolio();
   $("#btn-brokers").onclick = () => showBrokers();
+  $("#btn-book").onclick = () => showDecisionBook();
   $("#btn-watch").onclick = () => showWatch();
   $("#btn-review").onclick = () => showReview();
   await showQueue();

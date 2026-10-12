@@ -11,6 +11,7 @@ serves — for operators and for smoke runs:
     zep-context-agent queue
     zep-context-agent portfolio [--as-of 2026-06-01] [--horizon-days 45]
     zep-context-agent brokers [--as-of 2026-06-01] [--horizon-days 45]
+    zep-context-agent decision-book --from 2026-06-01 --to 2026-06-14
     zep-context-agent timeline ACC-001 [--as-of 2026-06-01]
     zep-context-agent watch [--as-of 2026-06-01] [--horizon-days 45]
     zep-context-agent chases [--account ACC-001] [--as-of 2026-06-01] [--horizon-days 45]
@@ -33,6 +34,7 @@ from datetime import date
 
 from .brokers import render_broker_book_text
 from .chases import render_chases_text
+from .decisionbook import render_decision_book_text
 from .config import load_dotenv
 from .errors import ContextError
 from .followthrough import render_follow_through_text
@@ -97,6 +99,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_brokers.add_argument("--as-of", type=date.fromisoformat, default=None)
     p_brokers.add_argument("--horizon-days", type=int, default=None)
+
+    p_book = sub.add_parser(
+        "decision-book",
+        help="The decision book: every governed act in a period, "
+        "in time order, with its counts and digest",
+    )
+    p_book.add_argument("--from", dest="start", type=date.fromisoformat, required=True)
+    p_book.add_argument("--to", dest="end", type=date.fromisoformat, required=True)
 
     p_asks = sub.add_parser(
         "asks",
@@ -256,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
                 as_of=args.as_of, horizon_days=args.horizon_days
             )
             print(render_broker_book_text(book), end="")
+        elif args.command == "decision-book":
+            book = service.decision_book(args.start, args.end)
+            print(render_decision_book_text(book), end="")
         elif args.command == "timeline":
             timeline = service.account_timeline(
                 args.account_id, as_of=args.as_of

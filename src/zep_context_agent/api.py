@@ -45,12 +45,14 @@ from .errors import (
     ChaseError,
     ContextError,
     ContextNotConfigured,
+    DecisionBookError,
     DecisionError,
     FollowThroughError,
     IngestionInProgress,
     RenewalError,
     ReviewError,
 )
+from .decisionbook import render_decision_book_text
 from .observability import configure_json_logging, new_request_id, request_id_ctx
 from .render import render_brief_text
 from .schemas import (
@@ -132,6 +134,12 @@ def create_app(service: BriefService | None = None) -> FastAPI:
     @app.exception_handler(DecisionError)
     def decision_handler(request: Request, exc: DecisionError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(DecisionBookError)
+    def decision_book_handler(
+        request: Request, exc: DecisionBookError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(FollowThroughError)
     def follow_through_handler(
@@ -294,6 +302,35 @@ def create_app(service: BriefService | None = None) -> FastAPI:
         book, and no score is computed. A pure projection: it
         mutates nothing and re-orders nothing else."""
         book = svc.broker_book(as_of=as_of, horizon_days=horizon_days)
+        return book.model_dump(mode="json")
+
+    @app.get("/decision-book")
+    def decision_book(
+        start: date, end: date, format: str = Query("json")
+    ) -> object:
+        """The decision book: every governed act recorded in
+        ``[start, end]`` — gate decisions (renewals marked,
+        with their baselines), staleness raised and resolved,
+        asks opened, received, and completed, renewal chases
+        sent, review-gate confirmations and rejections — in
+        time order, across every account, with the act counts,
+        the source list the completeness claim rests on, and a
+        SHA-256 digest on its face. Both bounds are inclusive;
+        an act's moment is read in UTC. A pure projection: it
+        mutates nothing. ``format=text`` returns the book as a
+        downloadable text document — the copy a reviewer keeps."""
+        book = svc.decision_book(start, end)
+        if format == "text":
+            return PlainTextResponse(
+                render_decision_book_text(book),
+                media_type="text/plain",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="decision-book-'
+                        f'{start.isoformat()}-to-{end.isoformat()}.txt"'
+                    )
+                },
+            )
         return book.model_dump(mode="json")
 
     @app.get("/staleness")
