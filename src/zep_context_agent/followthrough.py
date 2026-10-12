@@ -533,7 +533,7 @@ def evaluate_after_ingestion(
     if not open_recs:
         return []
     current = assembly.assemble_brief(
-        port, account, as_of or date.today()
+        port, account, as_of or _now().date()
     )
     graph_facts: list[Fact] | None = None  # fetched on first renewal item
     episodes = sorted(

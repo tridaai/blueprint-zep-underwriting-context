@@ -22,9 +22,25 @@ block, and the eval pack:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from .ontology import Fact
+
+
+def today() -> date:
+    """The desk's today: the current date, read on the UTC clock.
+
+    Every fact-of-record stamp in the system — gate decision
+    times, review-gate attestations — is taken in UTC, so the
+    date those stamps land on is a UTC date. "Today" must be read
+    on the same clock. Reading the host-local date instead lets
+    the two disagree: on a host west of UTC they differ every
+    evening, and a decision recorded "now" then carries a
+    ``valid_from`` later than a default ``as_of`` — resolution
+    treats it as a future fact and it silently drops out of the
+    next brief. One clock, everywhere: this one.
+    """
+    return datetime.now(timezone.utc).date()
 
 
 def _key(fact: Fact) -> tuple[str, str]:

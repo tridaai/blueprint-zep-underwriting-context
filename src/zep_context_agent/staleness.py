@@ -295,7 +295,7 @@ def evaluate_after_ingestion(
         staleness_store.save(record)
         return record
     current = assembly.assemble_brief(
-        port, account, as_of or date.today()
+        port, account, as_of or _now().date()
     )
     slice_ = material_slice(decided, diffing.compute_diff(decided, current))
     if slice_ is None:
@@ -374,7 +374,7 @@ def build_desk_queue(
     store as well, the row carries the account's renewal
     chases (see :mod:`chases`) under the same discipline:
     annotation, never ordering."""
-    today = today or date.today()
+    today = today or _now().date()
     stale_rows: list[tuple[datetime, DeskQueueEntry]] = []
     awaiting_rows: list[tuple[datetime, DeskQueueEntry]] = []
     decided_rows: list[tuple[datetime, DeskQueueEntry]] = []

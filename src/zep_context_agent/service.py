@@ -58,6 +58,7 @@ from .ontology import Account, Episode
 from .schemas import AuditEntry, Brief
 from .staleness import default_staleness_store
 from .store import default_store
+from .temporal import today
 from .wiring import build_context_port
 
 logger = logging.getLogger("zep_context_agent.service")
@@ -327,7 +328,7 @@ class BriefService:
             brief_store=self.store,
             staleness_store=self.staleness_store,
             follow_store=self.follow_store,
-            as_of=as_of or date.today(),
+            as_of=as_of or today(),
         )
 
     def expiry_watch(
@@ -342,7 +343,7 @@ class BriefService:
         return timeline_mod.build_expiry_watch(
             port=self.port,
             accounts=self.accounts,
-            as_of=as_of or date.today(),
+            as_of=as_of or today(),
             horizon_days=(
                 horizon_days if horizon_days is not None else expiry_horizon_days()
             ),
@@ -366,7 +367,7 @@ class BriefService:
         from . import chases as chases_mod
         from .config import expiry_horizon_days
 
-        as_of = as_of or date.today()
+        as_of = as_of or today()
         horizon = (
             horizon_days if horizon_days is not None else expiry_horizon_days()
         )
@@ -418,7 +419,7 @@ class BriefService:
             follow_store=self.follow_store,
             predicate=predicate,
             actor=actor,
-            as_of=as_of or date.today(),
+            as_of=as_of or today(),
             horizon_days=(
                 horizon_days
                 if horizon_days is not None
@@ -446,7 +447,7 @@ class BriefService:
             brief_store=self.store,
             staleness_store=self.staleness_store,
             follow_store=self.follow_store,
-            as_of=as_of or date.today(),
+            as_of=as_of or today(),
             horizon_days=(
                 horizon_days if horizon_days is not None else expiry_horizon_days()
             ),
@@ -467,7 +468,7 @@ class BriefService:
         mode: str = "standard",
     ) -> Brief:
         account = self.get_account(account_id)
-        as_of = as_of or date.today()
+        as_of = as_of or today()
         if mode not in ("standard", "renewal"):
             raise RenewalError(
                 f"Unknown assembly mode {mode!r}: 'standard' or 'renewal'."

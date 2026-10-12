@@ -247,11 +247,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(render_timeline_text(timeline))
         elif args.command == "watch":
-            from datetime import date as _date
+            from .temporal import today as _today
 
             from .config import expiry_horizon_days
 
-            as_of = args.as_of or _date.today()
+            as_of = args.as_of or _today()
             horizon = (
                 args.horizon_days
                 if args.horizon_days is not None
@@ -268,11 +268,11 @@ def main(argv: list[str] | None = None) -> int:
             for record in records:
                 print(render_follow_through_text(record))
         elif args.command == "chases":
-            from datetime import date as _date
+            from .temporal import today as _today
 
             from .config import expiry_horizon_days
 
-            as_of = args.as_of or _date.today()
+            as_of = args.as_of or _today()
             horizon = (
                 args.horizon_days
                 if args.horizon_days is not None

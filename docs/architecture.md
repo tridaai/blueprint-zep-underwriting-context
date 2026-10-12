@@ -92,6 +92,15 @@ The brief renders both lists. Superseded facts are never deleted
 and never presented as live; the underwriter sees what changed,
 when, and what replaced it.
 
+One clock rule stands under all of this: the system's stamps
+(decision times, review attestations) are taken in UTC, so the
+default `as_of` — "today" — is read in UTC too
+(`temporal.today()`). Reading the host-local date instead lets
+the two disagree (on a host west of UTC, every evening), and a
+decision recorded "now" would carry a `valid_from` later than
+the default `as_of`: the future-fact exclusion above would drop
+the desk's own decision out of the next brief.
+
 ## Guardrails (all in code)
 
 1. **Injection screen at ingestion.** Correspondence text is
