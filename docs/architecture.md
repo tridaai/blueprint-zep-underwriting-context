@@ -963,6 +963,116 @@ four sources and joins no fifth.
   CLI's `decision-book --from … --to …` command. The
   per-account audit surfaces are untouched.
 
+## The duplicate watch — the same insured, twice
+
+`duplicates.py` is the system's first cross-account read,
+and it exists because the scoping that makes every other
+surface safe also makes this question unaskable anywhere
+else: the port names exactly one account per call, the
+leakage guardrail double-checks it, and so each account
+stood alone — one insured placed through two submissions
+became two accounts, and every exposure view counted it
+twice. The watch reads each account's own facts through
+the port, one account at a time, and compares the *values*
+in code. Nothing crosses into a brief; the only
+cross-account artifact is the pair itself.
+
+- **Detection: current facts, a stated rule, corroboration
+  required.** Each side's evidence is its CURRENT facts
+  resolved by the temporal rule as of the watch's date —
+  `legal_name`, `primary_location`, `risk_class`,
+  `annual_revenue_usd` — plus its broker of record, read
+  off its own paper by the broker book's one identity
+  reader (`brokers.broker_of_record`). A pair flags when
+  the normalised legal names (lowercased, punctuation
+  removed, legal-form tokens — Inc, LLC, Corp, Co, Company,
+  Ltd, "the" — dropped) reach a character-sequence ratio
+  (`difflib.SequenceMatcher`) of **0.90** — the threshold
+  is `NAME_SIMILARITY_THRESHOLD`, lives in exactly one
+  place, and prints on the watch's face — **and** at least
+  one corroborating signal holds: a STRONG one (the same
+  primary location, exactly; the same broker of record;
+  the same risk class with annual revenue within ten
+  percent of the larger — `REVENUE_NEAR_FRACTION`) or two
+  WEAK ones (the same state, parsed from the location's
+  trailing code; the same risk-class line, the text before
+  the class's own detail). A bare name similarity never
+  flags alone: near-identical names are also how distinct
+  insureds look, which is why the dataset plants them as
+  traps. The seeded book's planted pair is calibrated to
+  the rule honestly — ACC-001 "Meridian Casting Co." and
+  ACC-002 "Meridian Castings LLC" score 0.97 on name and
+  share exactly the two weak signals (Pennsylvania; Product
+  liability) while differing on broker, location, full
+  risk class, and revenue; the book's next-closest name
+  pair scores 0.848, under the threshold, so the pristine
+  book flags exactly one pair. An account with no current
+  legal name cannot pair and is simply absent. Pairs are
+  computed projections, re-derived on every read (the
+  chases/broker-book idiom), ordered by similarity then
+  account id; there is deliberately no ingestion hook —
+  a fact change shows up the next time the watch is read,
+  which is exactly what the re-flag rule below describes.
+- **Verdicts: append-only, fingerprint-bound.** A named
+  underwriter records SAME_INSURED (with a note) or
+  DISTINCT (with the distinguishing fact stated) on a pair
+  that flags on current facts; anything else — an
+  unflagged pair, the same account twice, a missing actor
+  or note — is refused by name (`DuplicateError`, 409 at
+  the API) and records nothing. Records live in their own
+  store (migration 0007: durable governed records like the
+  staleness and follow-through records, Postgres in
+  production, the in-memory double in tests) and are never
+  edited; a pair's standing derives from its LATEST
+  verdict. Each verdict carries the pair's evidence
+  fingerprint — a SHA-256 over both names, the similarity,
+  both locations, risk classes, revenues, brokers, and the
+  corroborators that fired. A DISTINCT verdict suppresses
+  the pair only while the pair's current fingerprint still
+  equals the verdict's: if the underlying facts change
+  materially, the fingerprint moves and the pair re-flags
+  as a NEW flag (`reflagged`), the old verdict riding it
+  as history — the watermark idiom: the verdict answered
+  the evidence it saw, not whatever the file becomes
+  later. A SAME_INSURED verdict carries no fingerprint
+  condition, deliberately: it answers an identity question
+  (these two accounts are one insured), not an evidence
+  one, so it stands while the pair still flags.
+- **What a verdict does not do.** SAME_INSURED changes
+  nothing operational: no merge, no fact movement, no
+  brief changes — pinned byte-identical across the act for
+  briefs, facts, and the desk queue. The desk merges
+  accounts in their system of record, not here; this
+  system reports the double-count, it does not repair it.
+  The desk queue is untouched for a stated reason: pair
+  work is book hygiene, not account urgency — a possible
+  duplicate makes neither account's decision staler, its
+  asks bigger, or its facts thinner.
+- **The exposure reading.** The portfolio brief carries
+  the annotation (`duplicates` on `PortfolioBrief`,
+  computed from the watch when the brief is built with the
+  verdict store — the service always passes it): the
+  confirmed SAME_INSURED pairs counted and named, with the
+  verdict's actor and record id — "N accounts in M
+  confirmed duplicate pairs". It rides the brief, never a
+  row: no row's counts, score, or position moves, and
+  `PORTFOLIO_WEIGHTS` is exactly the published dict —
+  exposure double-count is reported, not silently
+  corrected. Unverdicted flags never annotate (a suspicion
+  does not print as fact), and with no verdicts the
+  annotation is empty and the brief — JSON and text render
+  alike — is exactly what it was before the watch existed.
+  Surfaces: the service's `duplicate_watch` /
+  `record_duplicate_verdict` / `list_duplicate_verdicts`,
+  `GET /duplicates`, `GET /duplicates/verdicts`,
+  `POST /duplicates/verdict`, the console's Duplicates
+  section (pairs with evidence and the verdict acts; the
+  portfolio section shows the annotation when a pair is
+  confirmed), and the CLI's `duplicates` and
+  `duplicate-verdict` commands. Pinned by
+  `tests/test_duplicates.py` and the eval pack's duplicate
+  watch scenario.
+
 ## Storage topology
 
 | Concern | Production | Without configuration |
@@ -972,6 +1082,7 @@ four sources and joins no fifth.
 | Staleness records | PostgreSQL (`staleness_records`, migration 0004) — flags on decided briefs, stored apart from the briefs themselves | In-memory store (test double) |
 | Follow-through records | PostgreSQL (`follow_through_records`, migration 0005) — request-info asks and renewal-chase asks with items, draft, and per-item state, stored apart from the briefs they ride on | In-memory store (test double) |
 | Review candidates | PostgreSQL (`candidate_facts`, migration 0006) — correspondence assertions awaiting review, beside the citation index that persists them | Adapter memory with the rest of the cited layer |
+| Duplicate verdicts | PostgreSQL (`duplicate_verdicts`, migration 0007) — underwriters' SAME_INSURED / DISTINCT verdicts on flagged pairs, with the evidence fingerprint, stored apart from both accounts | In-memory store (test double) |
 | Graph checkpoints | PostgreSQL via the LangGraph Postgres checkpointer | MemorySaver; `CHECKPOINTS=off` → service-state gate |
 | Source documents | S3-compatible object storage (SeaweedFS in compose), key `accounts/<id>/documents/<doc_id>.json` | Not archived (inline only) |
 | **Cache + ingestion locks** | **Redis** (below) | **Disabled — stated, not substituted** |
@@ -1074,6 +1185,8 @@ src/zep_context_agent/
   chases.py        the renewal chase: watch rows joined to asks — projection, dedupe, the send
   portfolio.py     the morning portfolio brief: signals counted, the book ranked
   brokers.py       the broker book: the book grouped by placing broker — what each broker owes
+  decisionbook.py  the decision book: every governed act in a period, in time order
+  duplicates.py    the duplicate watch: pair detection in code, verdicts + their store
   support.py       support grading: how well-backed each current fact is (derived at assembly)
   renewals.py      renewal briefs: the baseline decision, the change ledger, inherited open business
   cache.py         CachePort, Redis adapter, in-memory double, caching port decorator

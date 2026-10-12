@@ -341,6 +341,48 @@ ingest → screen → assemble → verify → gate
   (JSON, or `format=text` to download the copy a reviewer
   keeps), in the console's Decision book section, and via
   the CLI's `decision-book --from … --to …` command.
+- **Watch for the same insured, twice** — one insured placed
+  through two submissions becomes two accounts, and every
+  exposure view counts it twice. Nothing here ever looked
+  across accounts — the graph's scoping is one account per
+  call — so the **duplicate watch** (`duplicates.py`) is the
+  first cross-account read, built from each account's own
+  facts compared in code. A pair flags when the accounts'
+  current legal names, normalised (lowercased, punctuation
+  removed, legal-form tokens like Inc and LLC dropped),
+  reach a character-sequence similarity of 0.90 — the
+  threshold lives in one place and prints on the watch's
+  face — **and** a corroborating signal holds: a strong one
+  (the same primary location; the same broker of record;
+  the same risk class with annual revenue within ten
+  percent) or two weak ones (the same state; the same
+  risk-class line). A bare name similarity never flags
+  alone — near-identical names are also how distinct
+  insureds look. Every flag carries its evidence: both
+  sides' values, the similarity figure, the corroborators
+  that fired. For each pair a named underwriter records a
+  verdict — **SAME_INSURED** (with a note) or **DISTINCT**
+  (with the distinguishing fact stated) — as an append-only
+  record carrying the pair's evidence fingerprint: a
+  DISTINCT verdict suppresses the pair only while the
+  evidence stands, so a material fact change re-flags it
+  as new. SAME_INSURED changes nothing operational — no
+  merge, no fact movement, no brief edits; the desk merges
+  accounts in their system of record, not here. What it
+  does is mark the pair for the portfolio brief, which
+  prints "N accounts in M confirmed duplicate pairs" and
+  names them: the double-count is reported, not silently
+  corrected, and the ranking's weights, scores, and order
+  are untouched. Unverdicted flags never annotate the
+  brief — a suspicion does not print as fact — and the
+  desk queue does not change: pair work is book hygiene,
+  not account urgency. On the seeded book exactly one pair
+  flags: the two Meridian accounts, on their two weak
+  signals. Served at `GET /duplicates` (verdicts at
+  `POST /duplicates/verdict`, the history at
+  `GET /duplicates/verdicts`), in the console's Duplicates
+  section, and via the CLI's `duplicates` and
+  `duplicate-verdict` commands.
 
 A model may optionally **narrate** the assembled facts into a short
 summary — it may never add a fact. A verifier checks every figure
@@ -518,7 +560,18 @@ exactly once, in time order, with counts equal to the
 stores' own reads; the window's bounds inclusive, an act a
 day outside absent; regeneration byte-identical with the
 same digest; composing writing nothing; and an empty window
-an honest empty book. The golden cases assert the
+an honest empty book. A thirteenth, the **duplicate watch
+scenario**, requires the seeded book to flag exactly one
+pair — the two Meridian accounts, on their two weak
+corroborators, evidence asserted value by value — the
+unverdicted pair to stay off the portfolio brief, and a
+SAME_INSURED verdict to annotate it (2 accounts, 1 pair,
+named) with the published weights and every row's score
+and position unchanged and no brief or fact moved; staged,
+an identical-name pair with no corroboration does not flag
+and its verdict is refused, a DISTINCT verdict suppresses
+on the evidence fingerprint, and a restated location
+re-flags the pair as new. The golden cases assert the
 reviewed steady state of the seeded file — its historical
 correspondence confirmed as it arrived, over the file's life —
 so the runner performs that review pass explicitly before the
