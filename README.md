@@ -30,8 +30,7 @@ This is an independent Trida AI blueprint. It is **not affiliated
 with or endorsed by Zep**; it is built by Trida AI against Zep's
 public API documentation to show how a forward-deployed team would
 put the Zep context layer into production inside a specialty
-insurer. Everything in the dataset is synthetic — there is no real
-insurer, broker, account, or policy anywhere in this repository.
+insurer.
 
 > **Work in progress** — this blueprint is built and passing its automated test and eval gates, but it has not yet finished hands-on local testing, and its companion blog post is not yet published. Expect changes. This notice comes off when both are done.
 
