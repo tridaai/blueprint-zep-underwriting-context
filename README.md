@@ -32,7 +32,9 @@ public API documentation to show how a forward-deployed team would
 put the Zep context layer into production inside a specialty
 insurer.
 
-> **Work in progress** — this blueprint is built and passing its automated test and eval gates, but it has not yet finished hands-on local testing, and its companion blog post is not yet published. Expect changes. This notice comes off when both are done.
+<p><a href="https://trida.ai/blog/zep-underwriting-context-agent-blueprint"><img src="https://geeytzpdwvjojoie.public.blob.vercel-storage.com/blog/1792755702349-cover.webp" alt="Zep Underwriting Context Agent Blueprint" width="600"></a></p>
+
+**Deep-dive:** [Zep Underwriting Context Agent Blueprint](https://trida.ai/blog/zep-underwriting-context-agent-blueprint) — how the agent works, where it stops, and what the evals actually prove.
 
 ---
 
