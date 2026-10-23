@@ -396,10 +396,11 @@ Provider-first: the standard run is your Zep deployment.
 |---|---|
 | `CONTEXT_BACKEND=zep` | The real Zep Cloud API (default target). Requires `ZEP_API_KEY`. |
 | `ZEP_API_KEY` | Key from the Zep dashboard (`.env`, never committed). |
-| `ZEP_API_BASE_URL` | Override for a self-hosted / BYOC Zep stack. Default: the hosted API. |
+| `ZEP_API_BASE_URL` | The SDK's base-URL override (e.g. a regional or private Zep endpoint). Default: the SDK's hosted v4 API (`https://api.getzep.com/api/v4`). |
+| `ZEP_BATCH_POLL_SECONDS` / `ZEP_BATCH_MAX_POLLS` | Optional. How the Batch API backfill polls for completion. Defaults: 2s, 300 polls. |
 | `CONTEXT_BACKEND=offline` | The labelled local temporal graph — tests, evals, demos. |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` | Optional narrative model, any OpenAI-compatible endpoint (including a self-hosted NVIDIA NIM container or the hosted NIM catalog). No key → deterministic template narrative, labelled as such. |
-| `DATABASE_URL` | PostgreSQL: brief records, the citation index, + LangGraph checkpointer. Unset → in-memory test doubles, and `/readiness` says so. |
+| `DATABASE_URL` | PostgreSQL: brief records, the citation index, the Zep graph registry, + LangGraph checkpointer. Unset → in-memory test doubles, and `/readiness` says so. |
 | `REDIS_URL` | Optional. The brief/retrieval cache + ingestion coordination lock (see below). Unset → caching disabled, and `/readiness` says so. |
 | `EXPIRY_HORIZON_DAYS` | Optional. How far ahead the expiry watch warns before a relied-on fact's window closes. Default 45. |
 | `S3_ENDPOINT_URL` / `S3_BUCKET` | Source documents in S3-compatible object storage (SeaweedFS in the compose stack). |
@@ -439,19 +440,85 @@ review gate's candidate reads and decisions — the gate lives in
 the cited layer both adapters serve, so it behaves identically
 on either profile. Two adapters implement it:
 
-- **`zep`** — the real API. Documents are ingested as JSON episodes
-  into the account's own graph scope (the account-scoping seam on
-  the Zep side); the brief's *citations* read back from the episode
-  payloads the adapter ingested — an audit-grade brief cannot cite
-  a paraphrase — and the provider context block is Zep's own thread
-  user-context, fetched live and labelled as provider context.
-  The payload index persists in the blueprint's Postgres citation
+- **`zep`** — the real API: Zep Cloud v4 (the Context API),
+  through the official `zep-cloud` SDK. Each account gets its own
+  **Context Graph**, provisioned on first touch — created under
+  the name `uw-account-<account_id>`, the blueprint's ontology
+  registered on it before its first episode (v4 ontologies are
+  not retroactive), the account → graph UUID mapping kept in the
+  blueprint's own registry (migration 0008). Documents land as
+  JSON episodes with their received date as the reference time,
+  grouped by document, carrying account/document/kind metadata;
+  bulk backfills go through Zep's Batch API. The brief's
+  *citations* read back from the episode payloads the adapter
+  ingested — an audit-grade brief cannot cite a paraphrase —
+  while Zep's own per-scope search (cross-encoder reranked) and
+  the graph's context block enrich the brief's provider-context
+  surface, fetched live and labelled as provider context. The
+  payload index persists in the blueprint's Postgres citation
   index when a database is configured (both profiles write through
   it), so a restart re-reads the cited layer instead of losing it.
 - **`offline`** — a local in-memory temporal graph with the same
   semantics: episodes, facts with validity windows, edges, account
   scoping, lexical search. It does not do Zep's learned extraction
   or semantic ranking, and the docs say so wherever it is named.
+
+## Zep product coverage
+
+What this blueprint uses from the Zep platform — and what it
+deliberately leaves out, so the deployment surface is a decision,
+not an accident.
+
+**Used**
+
+- **Zep Cloud v4 (the Context API)** via the official `zep-cloud`
+  Python SDK — the adapter's only transport.
+- **Per-account Context Graphs** — one graph per insurance
+  account, provisioned lazily (`graph.create` with an
+  idempotency key); the account → UUID mapping lives in the
+  blueprint's own registry (migration 0008).
+- **Per-graph ontology** — the blueprint's entity/edge types
+  registered with `graph.set_ontology` before the graph's first
+  episode (it is not retroactive).
+- **Episodes with document grouping + metadata** — JSON episodes
+  carrying `reference_time` (the document's received date, which
+  drives temporal invalidation), `document_id`, and
+  account/document/kind metadata projected onto derived
+  artifacts.
+- **Per-scope hybrid search with rerankers** — `graph.search_edges`
+  with the cross-encoder reranker and an account metadata filter;
+  hits enrich the brief's provider-context surface only, never
+  its citations.
+- **Graph context blocks** — `graph.get_context` over the account
+  graph (v4 thread context blocks are built over user graphs;
+  account graphs here are shared graphs, so the graph-scoped
+  block is the route).
+- **Batch API** — bulk backfills: `batch.create` → `add_items` →
+  `process`, polled to a terminal status; single documents stay
+  on the real-time episode path.
+- **Idempotency where the SDK supports it** — deterministic keys
+  on graph creation and batch submission, so a retried run
+  re-joins the same server-side work.
+
+**Deliberately out**
+
+- **Graphiti self-hosting** — Graphiti is the framework inside
+  Zep; running it yourself is a separate self-host deployment
+  profile, not this blueprint's hosted target.
+- **Context MCP Server** — an alternate access surface aimed at
+  coding agents, not this service's runtime path.
+- **`zep-ingest` package** — the Batch API is used directly; one
+  less moving part between the blueprint and the platform.
+- **Observations, thread summaries, document summaries beyond
+  listing** — user-graph artifacts; account graphs here are
+  shared graphs. (Document summaries exist per ingested document
+  via the document grouping above and are noted, not consumed.)
+- **Hyperedges + hierarchical types** — v4 beta/closed features;
+  a production blueprint pins to the released surface.
+- **`graph.query`** — a closed release; not on the public surface
+  this blueprint codes against.
+- **User groups / policies** — administered in the Zep dashboard
+  by the deployment, not driven from this codebase.
 
 ## Evals
 
@@ -580,9 +647,9 @@ and reported, not gated.
 ## Honest status
 
 - **Live Zep verification is pending an API key.** The `zep`
-  adapter is built against Zep's public API documentation and
-  pinned by contract tests over a stubbed transport; it has not yet
-  run against a live Zep workspace.
+  adapter is built against the official `zep-cloud` SDK 4.0.1
+  surface and pinned by contract tests over a fake SDK client; it
+  has not yet run against a live Zep workspace.
 - The offline adapter is a semantics-faithful local graph, not a
   simulation of Zep's ranking quality; brief *correctness* results
   on it prove the assembly rules, not Zep's retrieval quality.

@@ -36,20 +36,45 @@ mismatch.
 
 Two adapters:
 
-- **`zep`** — the real Zep Cloud API over HTTPS (no vendor SDK
-  vendored in). Writes go to Zep for real: each document is a JSON
-  episode in the account's own graph scope (`group_id =
-  uw-account-<account_id>`). Cited facts read back from an
+- **`zep`** — the real Zep Cloud API: the v4 Context API through
+  the official `zep-cloud` SDK (transport only; no SDK code is
+  vendored in). Writes go to Zep for real. Each account has its
+  own **Context Graph**, provisioned lazily on first touch:
+  `graph.create` (name `uw-account-<account_id>`, deterministic
+  idempotency key) returns the server-assigned UUID, the
+  blueprint's ontology is registered on the graph with
+  `graph.set_ontology` — before the graph's first episode,
+  because the v4 ontology is not retroactive — and the
+  account → UUID mapping plus the ontology-applied flag persist
+  in the blueprint's own graph registry (`zep_graphs`, migration
+  0008; the flag flips only after the set succeeds, so a crash
+  mid-provisioning re-runs it). Each document is then a JSON
+  episode (`graph.episode.add`) carrying the document's
+  `received_at` as `reference_time` — the event time driving
+  Zep's temporal invalidation — its `document_id`, and
+  account/document/kind metadata. Cited facts read back from an
   episode-payload index the adapter keeps for what it ingested —
   an audit-grade brief cites episode payloads, not paraphrases of
   Zep's extracted graph; Zep builds its semantic graph from the
-  same payloads server-side. The context block is Zep's own thread
-  user-context, fetched live and labelled *provider context* on
-  the brief — shown to the underwriter, never used as a citation
-  source. Any HTTP failure raises `ContextUnavailable`; the brief
-  then assembles from cited facts alone and says the provider
-  context was unavailable. The adapter never falls back to the
-  offline graph.
+  same payloads server-side. Ranked retrieval runs Zep's own
+  per-scope search (`graph.search_edges`, cross-encoder reranker,
+  account metadata filter); the hits are provider material and
+  surface inside the brief's provider-context block only. The
+  context block itself is Zep's graph-scoped context
+  (`graph.get_context` over the account graph — v4 thread context
+  blocks are built over *user* graphs, and an account graph here
+  is a shared graph, so the v2 adapter's thread construction went
+  away), fetched live and labelled *provider context* on the
+  brief — shown to the underwriter, never used as a citation
+  source. Bulk loads (more than one document in an ingestion run)
+  go through the **Batch API** — one batch per account:
+  `batch.create` → `add_items` → `process`, polled on `batch.get`
+  to a terminal status, items matched back to documents by
+  sequence index; a partial batch records what landed and raises,
+  naming the documents that did not. Any SDK failure raises
+  `ContextUnavailable`; the brief then assembles from cited facts
+  alone and says the provider context was unavailable. The
+  adapter never falls back to the offline graph.
 - **`offline`** — a local in-memory temporal graph with the same
   semantics (episodes, validity windows, edges, scoping, lexical
   search). It is the labelled fallback for tests, evals, and
