@@ -18,9 +18,15 @@ Zep stack, or the offline local graph — is configuration, not code:
   an underwriter confirms them. Rejection keeps the record, with
   the reason. See :mod:`review`.
 - ``get_context_block`` is the provider's own synthesized context
-  for the account (Zep's thread user-context on the Zep side; a
-  locally composed equivalent offline). It is shown in the brief
-  labelled as provider context — it is never a citation source.
+  for the account (Zep v4's graph-scoped context block over the
+  account's Context Graph on the Zep side; a locally composed
+  equivalent offline). It is shown in the brief labelled as
+  provider context — it is never a citation source.
+- Adapters may additionally offer ``ingest_documents_batch`` —
+  the bulk path :func:`ingestion.ingest_documents` takes when a
+  run carries more than one document (on the Zep side, the Batch
+  API). It is deliberately not part of this protocol: the seam is
+  an ingestion optimisation, not a contract every adapter owes.
 
 Account scoping is part of the contract: every call names exactly
 one account, adapters store facts per account, and a cross-account

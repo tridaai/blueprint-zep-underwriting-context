@@ -21,6 +21,7 @@ from .config import context_backend
 from .errors import ContextNotConfigured
 from .offline_graph import OfflineContextGraph
 from .ports import ContextPort
+from .zep_graphs import default_graph_registry
 
 
 def build_context_port() -> ContextPort:
@@ -34,7 +35,10 @@ def build_context_port() -> ContextPort:
     if backend == "zep":
         from .zep_graph import ZepContextGraph
 
-        return ZepContextGraph(citation_index=citation_index)
+        return ZepContextGraph(
+            citation_index=citation_index,
+            graph_registry=default_graph_registry(),
+        )
     raise ContextNotConfigured(
         f"Unknown CONTEXT_BACKEND={backend!r}. Use 'zep' (the real "
         "Zep Cloud profile) or 'offline' (the labelled local graph)."

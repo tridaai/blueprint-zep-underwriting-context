@@ -28,8 +28,11 @@ dependencies = [
     "fastapi==0.143.0",
     "pydantic==2.14.0",
     "uvicorn==0.54.0",
-    # The Zep Cloud adapter and the optional narrative model client
-    # speak plain HTTPS (httpx) — no vendor SDK is vendored in.
+    # The Zep Cloud adapter speaks to the Zep v4 platform through
+    # the official zep-cloud SDK (transport only — no SDK code is
+    # vendored in). The optional narrative model client speaks
+    # plain HTTPS via httpx.
+    "zep-cloud==4.0.1",
     "httpx==0.28.1",
     # Transitive via langchain-core -> langsmith (websockets>=15.0, unbounded).
     # websockets 17.x requires Python >=3.11. 16.0 supports Python 3.10.

@@ -72,6 +72,7 @@ httpx==0.28.1
     #   langchain-core
     #   langgraph-sdk
     #   trida-blueprint-zep-underwriting-context
+    #   zep-cloud
 httpx2==2.13.1
     # via langsmith
 httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'
@@ -145,8 +146,11 @@ pydantic==2.14.0
     #   langgraph
     #   langsmith
     #   trida-blueprint-zep-underwriting-context
+    #   zep-cloud
 pydantic-core==2.50.0
-    # via pydantic
+    # via
+    #   pydantic
+    #   zep-cloud
 pygments==2.21.0
     # via pytest
 pytest==9.1.1
@@ -196,6 +200,7 @@ typing-extensions==4.16.0
     #   starlette
     #   typing-inspection
     #   uvicorn
+    #   zep-cloud
 typing-inspection==0.4.4
     # via
     #   fastapi
@@ -220,5 +225,7 @@ xxhash==4.0.1
     # via
     #   langgraph
     #   langsmith
+zep-cloud==4.0.1
+    # via trida-blueprint-zep-underwriting-context
 zstandard==0.25.0
     # via langsmith

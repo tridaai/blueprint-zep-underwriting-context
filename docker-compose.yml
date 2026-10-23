@@ -30,7 +30,7 @@ services:
     environment:
       CONTEXT_BACKEND: ${CONTEXT_BACKEND:-offline}
       ZEP_API_KEY: ${ZEP_API_KEY:-}
-      ZEP_API_BASE_URL: ${ZEP_API_BASE_URL:-https://api.getzep.com/api/v2}
+      ZEP_API_BASE_URL: ${ZEP_API_BASE_URL:-https://api.getzep.com/api/v4}
       DATABASE_URL: <redacted>
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:8333
