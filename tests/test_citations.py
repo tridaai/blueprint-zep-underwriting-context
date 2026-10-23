@@ -171,22 +171,44 @@ def test_brief_citations_survive_a_service_rebuild(accounts):
     )
 
 
-def test_zep_profile_reads_its_cited_layer_from_the_index():
-    import httpx
+class _StubGraph:
+    uuid_ = "graph-stub"
+    graph_id = None
 
+
+class _StubEpisodes:
+    def add(self, graph_uuid, **kwargs):
+        return object()
+
+
+class _StubGraphs:
+    episode = _StubEpisodes()
+
+    def create(self, **kwargs):
+        return _StubGraph()
+
+    def set_ontology(self, graph_uuid, **kwargs):
+        return object()
+
+
+class _StubZepClient:
+    """The smallest zep_cloud-shaped double the ingest path uses
+    (the full fake lives in test_zep_adapter.py)."""
+
+    graph = _StubGraphs()
+
+
+def test_zep_profile_reads_its_cited_layer_from_the_index():
     from zep_context_agent.zep_graph import ZepContextGraph
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={})
-
     index = InMemoryCitationIndex()
-    client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = _StubZepClient()
     first = ZepContextGraph(
         api_key="test-key", client=client, citation_index=index
     )
     ingest_document(first, sample_docs()[0])
     # A new adapter instance (the restart) reads the cited layer
-    # back from the index — no re-ingestion, no HTTP read needed.
+    # back from the index — no re-ingestion, no SDK read needed.
     second = ZepContextGraph(
         api_key="test-key", client=client, citation_index=index
     )
